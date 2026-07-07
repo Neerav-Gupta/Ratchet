@@ -141,7 +141,8 @@ export function compile(statement) {
   // "never git push [unless/until I say/ask/tell/approve]"
   let m = s.match(new RegExp(`${NEG}\\b[\\s\\S]{0,40}?\\b(?:git\\s+)?push\\b`, 'i'));
   if (m) {
-    const consent = /\b(unless|until|till)\b.{0,30}\b(i|me)\b.{0,20}\b(say|ask|tell|approve|want)/i.test(s);
+    // "untill" appears verbatim in real corrections — match the typo too.
+    const consent = /\b(unless|untill?|till)\b.{0,30}\b(i|me)\b.{0,20}\b(say|ask|tell|approve|want)/i.test(s);
     return {
       id: slugify('no git push' + (consent ? ' without consent' : '')),
       ...base,
@@ -151,6 +152,25 @@ export function compile(statement) {
         tool: 'Bash',
         pattern: '\\bgit\\s+push\\b',
         ...(consent ? { unless_user_said: '\\bpush\\b' } : {}),
+      },
+    };
+  }
+
+  // "never use/add `X` in *.ts files" — a quoted token plus a file glob is a
+  // content ban; check this before the command template so backticked code
+  // snippets aren't misread as commands.
+  m = s.match(new RegExp(`${NEG}\\s+(?:use|add|write|include)\\s+[\`"']([^\`"']{1,60})[\`"']`, 'i'));
+  if (m && extractGlobs(s).length > 0) {
+    const banned = m[1];
+    const files = extractGlobs(s).filter((t) => t !== banned && !banned.includes(t));
+    return {
+      id: slugify(`no ${banned}`),
+      ...base,
+      tier: 'deterministic',
+      check: {
+        type: 'content',
+        pattern: escapeRe(banned),
+        ...(files.length ? { files } : {}),
       },
     };
   }
@@ -180,19 +200,15 @@ export function compile(statement) {
     }
   }
 
-  // "never use/add `X`" with quoted/backticked token → content ban
-  m = s.match(new RegExp(`${NEG}\\s+(?:use|add|write|include)\\s+[\`"']([^\`"']{1,60})[\`"']`, 'i'));
+  // "never use/add `X`" (quoted, no file scope) → content ban everywhere,
+  // unless X reads like a shell command, which the template above handles.
+  m = s.match(new RegExp(`${NEG}\\s+(?:add|write|include)\\s+[\`"']([^\`"']{1,60})[\`"']`, 'i'));
   if (m) {
-    const files = extractGlobs(s);
     return {
       id: slugify(`no ${m[1]}`),
       ...base,
       tier: 'deterministic',
-      check: {
-        type: 'content',
-        pattern: escapeRe(m[1]),
-        ...(files.length ? { files } : {}),
-      },
+      check: { type: 'content', pattern: escapeRe(m[1]) },
     };
   }
 
@@ -227,7 +243,7 @@ const STOP = new Set(
 function keywordPattern(s) {
   const words = (s.toLowerCase().match(/[a-z][a-z0-9-]{2,}/g) || [])
     .filter((w) => !STOP.has(w))
-    .slice(0, 4);
+    .slice(0, 6);
   if (words.length === 0) return '.';
   return words.map(escapeRe).join('|');
 }
