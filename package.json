@@ -1,0 +1,37 @@
+{
+  "name": "ratchet-cc",
+  "version": "0.1.0",
+  "description": "Every correction you give your coding agent becomes an enforced check it can never violate again. CLAUDE.md is advice; Ratchet is law.",
+  "type": "module",
+  "bin": {
+    "ratchet": "bin/ratchet.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "claude-code",
+    "ai",
+    "agent",
+    "hooks",
+    "guardrails",
+    "lint",
+    "corrections",
+    "enforcement",
+    "cli"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Neerav-Gupta/Ratchet.git"
+  },
+  "scripts": {
+    "test": "node test/run.js"
+  }
+}
