@@ -61,7 +61,11 @@ function proposalsFrom(clusters) {
     const source = bestDirective(cluster);
     const rule = compile(source);
     rule.id = uniqueIdIn(proposals, rule.id || slugify(source));
-    rule.evidence = cluster.items.slice(0, 4).map((it) => ({
+    // Lead the evidence with the correction that states the rule outright.
+    const ordered = [...cluster.items].sort(
+      (a, b) => (CORRECTION_RE.test(b.text) ? 1 : 0) - (CORRECTION_RE.test(a.text) ? 1 : 0)
+    );
+    rule.evidence = ordered.slice(0, 4).map((it) => ({
       quote: oneLine(it.text).slice(0, 160),
       session: String(it.session).slice(0, 8),
       date: it.ts ? it.ts.slice(0, 10) : undefined,
