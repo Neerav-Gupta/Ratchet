@@ -29,11 +29,15 @@ const HELP = `
   hooks block the call, and the same rules run in pre-commit and CI.
 
   usage
-    ratchet init [--yes]        mine your Claude Code history, propose rules
+    ratchet init [--yes]        mine your agent history, propose rules
+       --agent claude|cursor|codex|all  which transcripts to mine (default: all)
     ratchet add <statement>     teach a rule in plain language
        --semantic               judge it with a model at Stop instead
     ratchet review [--yes]      accept corrections captured live from sessions
-    ratchet install             wire hooks into ./.claude/settings.json
+    ratchet install             wire hooks into Claude Code + Cursor + Codex
+       --claude                  only .claude/settings.json
+       --cursor                  only .cursor/hooks.json
+       --codex                   only .codex/config.toml
        --pre-commit             also run \`ratchet check\` before every commit
     ratchet uninstall           remove ratchet's hooks (rules stay)
     ratchet list                show rules and their status
@@ -89,10 +93,19 @@ export async function run(argv) {
         console.log(`  pre-commit hook ${action} → ${file}`);
         return;
       }
-      const file = install();
-      console.log(`  hooks installed → ${file}`);
+      const targets = installTargets(flags);
+      const files = install(undefined, targets);
+      if (files.claude) {
+        console.log(`  Claude Code hooks installed → ${files.claude}`);
+      }
+      if (files.cursor) {
+        console.log(`  Cursor hooks installed → ${files.cursor}`);
+      }
+      if (files.codex) {
+        console.log(`  Codex hooks installed → ${files.codex}`);
+      }
       console.log(
-        c(DIM, '  PreToolUse (blocks) + UserPromptSubmit (reminders, capture) + Stop (semantic judge)')
+        c(DIM, '  preToolUse (blocks) + beforeSubmitPrompt (capture) + stop (semantic judge)')
       );
       return;
     }
@@ -134,8 +147,12 @@ export async function run(argv) {
       return;
     }
     case 'uninstall': {
-      const file = uninstall();
-      console.log(file ? `  ratchet hooks removed from ${file}` : '  nothing to remove');
+      const targets = installTargets(flags);
+      const files = uninstall(undefined, targets);
+      if (files.claude) console.log(`  Claude Code hooks removed from ${files.claude}`);
+      if (files.cursor) console.log(`  Cursor hooks removed from ${files.cursor}`);
+      if (files.codex) console.log(`  Codex hooks removed from ${files.codex}`);
+      if (!files.claude && !files.cursor && !files.codex) console.log('  nothing to remove');
       return;
     }
     case 'list':
@@ -169,8 +186,9 @@ export async function run(argv) {
 }
 
 async function cmdInit(flags) {
-  console.log(c(DIM, '  mining your Claude Code transcripts…'));
-  const { proposals, scanned, sessions } = await mine({ dir: flags.dir });
+  const agent = flags.agent || 'all';
+  console.log(c(DIM, `  mining your ${agent === 'all' ? 'Claude Code + Cursor + Codex' : agent} transcripts…`));
+  const { proposals, scanned, sessions } = await mine({ dir: flags.dir, agent });
   console.log(
     c(DIM, `  ${scanned} messages · ${sessions} session files scanned\n`)
   );
@@ -431,14 +449,23 @@ function parseArgs(argv) {
     if (a === '--version' || a === '-v') return { command: 'version', positional, flags };
     if (a.startsWith('--')) {
       const key = a.slice(2);
-      if (['yes', 'json', 'semantic', 'pre-commit'].includes(key)) flags[key] = true;
+      if (['yes', 'json', 'semantic', 'pre-commit', 'claude', 'cursor', 'codex'].includes(key)) flags[key] = true;
       else {
         const val = argv[++i];
         if (val === undefined) throw new Error(`--${key} needs a value`);
-        flags[key] = ['hours'].includes(key) ? parseFloat(val) : val;
+        flags[key] = ['hours', 'agent'].includes(key) ? val : val;
       }
     } else if (!command) command = a;
     else positional.push(a);
   }
   return { command: command || 'help', positional, flags };
+}
+
+function installTargets(flags) {
+  const selected = ['claude', 'cursor', 'codex'].filter((k) => flags[k]);
+  if (selected.length > 1) throw new Error('pass only one of --claude, --cursor, or --codex');
+  if (flags.claude) return { claude: true, cursor: false, codex: false };
+  if (flags.cursor) return { claude: false, cursor: true, codex: false };
+  if (flags.codex) return { claude: false, cursor: false, codex: true };
+  return { claude: true, cursor: true, codex: true };
 }

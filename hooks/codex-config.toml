@@ -1,0 +1,19 @@
+# Ratchet hook config for Codex. `ratchet install --codex` writes the same
+# managed block into .codex/config.toml for the current project.
+
+# ratchet:hooks:start
+# Managed by ratchet. Edit .ratchet/rules/*.yaml, then rerun `ratchet install --codex`.
+[[hooks]]
+event = "pre-tool-use"
+matcher = "Bash|Shell|Edit|Write|MultiEdit|NotebookEdit"
+command = "node \"${RATCHET_ROOT}\"/bin/ratchet hook pre-tool-use"
+
+[[hooks]]
+event = "user-prompt-submit"
+command = "node \"${RATCHET_ROOT}\"/bin/ratchet hook user-prompt-submit"
+
+[[hooks]]
+event = "stop"
+command = "node \"${RATCHET_ROOT}\"/bin/ratchet hook stop"
+
+# ratchet:hooks:end

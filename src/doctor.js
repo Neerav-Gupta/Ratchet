@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { rulesDir, loadRules } from './store.js';
-import { settingsPath } from './hooks/install.js';
+import { settingsPath, cursorHooksPath, codexConfigPath } from './hooks/install.js';
 import { findClaudeBinary } from './hooks/semantic.js';
 
 /** Sanity-check an installation and explain how to fix what's off. */
@@ -30,12 +30,18 @@ export function doctor(cwd = process.cwd()) {
     }
   }
 
-  const settings = settingsPath(cwd);
-  if (fs.existsSync(settings) && fs.readFileSync(settings, 'utf8').includes('ratchet')) {
-    const events = ['PreToolUse', 'UserPromptSubmit', 'Stop'].filter((e) =>
-      fs.readFileSync(settings, 'utf8').includes(`"${e}"`)
-    );
-    ok(`hooks wired in ${path.relative(cwd, settings)} (${events.join(', ')})`);
+  const hookFiles = [
+    { label: 'Claude Code', file: settingsPath(cwd), events: ['PreToolUse', 'UserPromptSubmit', 'Stop'] },
+    { label: 'Cursor', file: cursorHooksPath(cwd), events: ['preToolUse', 'beforeSubmitPrompt', 'stop'] },
+    { label: 'Codex', file: codexConfigPath(cwd), events: ['pre-tool-use', 'user-prompt-submit', 'stop'] },
+  ];
+  const installed = hookFiles.filter((h) => fs.existsSync(h.file) && fs.readFileSync(h.file, 'utf8').includes('ratchet'));
+  if (installed.length > 0) {
+    for (const h of installed) {
+      const text = fs.readFileSync(h.file, 'utf8');
+      const events = h.events.filter((e) => text.includes(e));
+      ok(`${h.label} hooks wired in ${path.relative(cwd, h.file)} (${events.join(', ')})`);
+    }
   } else {
     bad('hooks not installed', 'run `ratchet install` in this project');
   }

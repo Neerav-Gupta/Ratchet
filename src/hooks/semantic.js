@@ -2,8 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
-import { spawnSync, execFileSync } from 'node:child_process';
+import { spawnSync, execSync, execFileSync } from 'node:child_process';
 import { loadRules, isActive, appendLog, ratchetDir } from '../store.js';
+import { normalizeEvent, formatStopBlock } from './adapters.js';
 
 /**
  * Semantic tier: rules that can't be reduced to a regex ("keep comments
@@ -18,7 +19,8 @@ import { loadRules, isActive, appendLog, ratchetDir } from '../store.js';
 
 const MAX_DIFF_CHARS = 24_000;
 
-export function stopHook(event, cwd) {
+export function stopHook(rawEvent, cwd) {
+  const event = normalizeEvent(rawEvent);
   if (event.stop_hook_active) return { exitCode: 0, stdout: '' };
 
   const rules = loadRules(cwd).filter(
@@ -47,15 +49,13 @@ export function stopHook(event, cwd) {
   const reasons = verdict.violations
     .map((v) => `- ${v.rule_id}: ${v.reason}`)
     .join('\n');
+  const reason =
+    `Ratchet semantic rules are not yet satisfied:\n${reasons}\n` +
+    `Fix these before finishing. These rules were taught by the user ` +
+    `(see \`ratchet why <id>\`); they can snooze a rule if it should not apply here.`;
   return {
     exitCode: 0,
-    stdout: JSON.stringify({
-      decision: 'block',
-      reason:
-        `Ratchet semantic rules are not yet satisfied:\n${reasons}\n` +
-        `Fix these before finishing. These rules were taught by the user ` +
-        `(see \`ratchet why <id>\`); they can snooze a rule if it should not apply here.`,
-    }),
+    stdout: formatStopBlock(reason, event._agent),
   };
 }
 
@@ -74,9 +74,14 @@ function judge(rules, diff, cwd) {
   let raw;
   try {
     if (custom) {
-      // Test/CI escape hatch: any command that reads the prompt on stdin
-      // and prints the verdict JSON.
-      raw = execFileSync(custom, [], { input: prompt, encoding: 'utf8', timeout: 60_000 });
+      // Test/CI escape hatch: a shell command string that reads the prompt
+      // on stdin and prints the verdict JSON. execSync always runs through
+      // a shell (sh -c on POSIX, cmd.exe /c on Windows), so this works
+      // cross-platform without relying on shebangs or an executable bit —
+      // neither of which Windows honors. The diff/prompt stays on stdin
+      // (never interpolated into the command string), and RATCHET_JUDGE_CMD
+      // is operator-set, not repo-controlled, so this is not an injection risk.
+      raw = execSync(custom, { input: prompt, encoding: 'utf8', timeout: 60_000 });
     } else {
       const bin = findClaudeBinary();
       if (!bin) {

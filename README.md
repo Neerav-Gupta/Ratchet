@@ -1,4 +1,4 @@
-# Ratchet 🔒
+# Ratchet
 
 [![CI](https://github.com/Neerav-Gupta/Ratchet/actions/workflows/ci.yml/badge.svg)](https://github.com/Neerav-Gupta/Ratchet/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/ratchet-cc)](https://www.npmjs.com/package/ratchet-cc)
@@ -15,7 +15,7 @@ $ ratchet init
 
   3 proposed rules from your own history:
 
-  1. [enforced] From now on don't push to github untill I tell you to  ⚠ you corrected this
+  1. [enforced] From now on don't push to github until I tell you to  ⚠ you corrected this
      said 6× on 4 occasions · e.g. "Can you commit and push all changes…"
      ✓ .ratchet/rules/no-git-push-without-consent.yaml
 ```

@@ -1,4 +1,5 @@
-import { listSessionFiles, parseSession, projectLabel, defaultProjectsDir } from './transcripts.js';
+import fs from 'node:fs';
+import { listSessionFiles, parseSession, projectLabel } from './transcripts.js';
 import { extractUserText } from './extract.js';
 import { clusterItems, CORRECTION_RE } from './cluster.js';
 import { compile } from './rules.js';
@@ -13,8 +14,11 @@ import { slugify, uniqueId } from './store.js';
  */
 
 export async function mine(opts = {}) {
-  const dir = opts.dir || defaultProjectsDir();
-  const files = listSessionFiles(dir);
+  const agent = opts.agent || 'all';
+  const claudeDir = opts.dir && (agent === 'claude' || agent === 'all') ? opts.dir : undefined;
+  const cursorDir = opts.dir && agent === 'cursor' ? opts.dir : opts.cursorDir;
+  const codexDir = opts.dir && agent === 'codex' ? opts.dir : opts.codexDir;
+  const files = listSessionFiles({ agent, claudeDir, cursorDir, codexDir });
 
   const items = [];
   const seenUuids = new Set();
@@ -22,10 +26,21 @@ export async function mine(opts = {}) {
   const RESEND_WINDOW_MS = 6 * 3600_000;
 
   for (const f of files) {
+    // Cursor's transcripts carry no per-message timestamp at all. Falling
+    // back to a shared 0 would make every repeat of the same text anywhere,
+    // in any session, look like a resend within the same window — silently
+    // collapsing genuine repeated-instruction evidence to a single count.
+    // The file's mtime at least gives distinct sessions distinct timestamps.
+    let fileTimestamp = null;
+
     for await (const entry of parseSession(f.path)) {
       const text = extractUserText(entry);
       if (!text) continue;
-      const ts = entry.timestamp ? Date.parse(entry.timestamp) : 0;
+      if (!entry.timestamp && fileTimestamp === null) {
+        fileTimestamp = fileMtimeIso(f.path);
+      }
+      const effectiveTimestamp = entry.timestamp || fileTimestamp;
+      const ts = effectiveTimestamp ? Date.parse(effectiveTimestamp) : 0;
 
       if (entry.uuid) {
         if (seenUuids.has(entry.uuid)) continue;
@@ -43,13 +58,21 @@ export async function mine(opts = {}) {
         text,
         session: f.session,
         project: projectLabel(entry.cwd, f.projectKey),
-        ts: entry.timestamp || null,
+        ts: effectiveTimestamp || null,
       });
     }
   }
 
   const clusters = clusterItems(items);
   return { proposals: proposalsFrom(clusters), scanned: items.length, sessions: files.length };
+}
+
+function fileMtimeIso(filePath) {
+  try {
+    return fs.statSync(filePath).mtime.toISOString();
+  } catch {
+    return null;
+  }
 }
 
 function proposalsFrom(clusters) {

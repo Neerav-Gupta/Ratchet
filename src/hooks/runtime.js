@@ -2,8 +2,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { loadRules, isActive, appendLog, ratchetDir } from '../store.js';
 import { evaluate, safeRegex } from '../rules.js';
+import { extractUserText } from '../extract.js';
 import { CORRECTION_RE } from '../cluster.js';
 import { stopHook } from './semantic.js';
+import {
+  normalizeEvent,
+  formatPreToolUseDeny,
+  formatUserPromptSubmit,
+} from './adapters.js';
 
 /**
  * Hook entry points. Claude Code pipes a JSON event on stdin; we answer with
@@ -30,7 +36,8 @@ export async function runHook(eventName, stdinText) {
   return { exitCode: 0, stdout: '' };
 }
 
-function preToolUse(event, cwd) {
+function preToolUse(rawEvent, cwd) {
+  const event = normalizeEvent(rawEvent);
   const rules = loadRules(cwd).filter((r) => isActive(r) && r.tier === 'deterministic');
   if (rules.length === 0) return { exitCode: 0, stdout: '' };
 
@@ -64,26 +71,16 @@ function preToolUse(event, cwd) {
       continue;
     }
 
-    const reason =
-      `Blocked by ratchet rule "${rule.id}": ${rule.statement}\n` +
-      `(${result.reason}. The user taught this rule — do not retry the same call; ` +
-      `either satisfy the rule's condition or ask the user. ` +
-      `They can run \`ratchet snooze ${rule.id}\` to lift it temporarily.)`;
     return {
       exitCode: 0,
-      stdout: JSON.stringify({
-        hookSpecificOutput: {
-          hookEventName: 'PreToolUse',
-          permissionDecision: 'deny',
-          permissionDecisionReason: reason,
-        },
-      }),
+      stdout: formatPreToolUseDeny(rule, result, event._agent),
     };
   }
   return { exitCode: 0, stdout: '' };
 }
 
-function userPromptSubmit(event, cwd) {
+function userPromptSubmit(rawEvent, cwd) {
+  const event = normalizeEvent(rawEvent);
   const prompt = String(event.prompt || '');
   captureCandidate(prompt, cwd);
 
@@ -94,12 +91,11 @@ function userPromptSubmit(event, cwd) {
   if (hits.length === 0) return { exitCode: 0, stdout: '' };
 
   const lines = hits.map((r) => `- ${r.statement} (ratchet rule ${r.id})`);
-  return {
-    exitCode: 0,
-    stdout:
-      `Standing instructions from the user, previously taught and relevant to this request:\n` +
-      lines.join('\n'),
-  };
+  const reminder =
+    `Standing instructions from the user, previously taught and relevant to this request:\n` +
+    lines.join('\n');
+  const stdout = formatUserPromptSubmit(reminder, event._agent);
+  return { exitCode: 0, stdout };
 }
 
 /**
@@ -140,17 +136,7 @@ export function readUserMessages(transcriptPath) {
     } catch {
       continue;
     }
-    if (entry.type !== 'user' || entry.isMeta || entry.isSidechain) continue;
-    const content = entry.message?.content;
-    let text = '';
-    if (typeof content === 'string') text = content;
-    else if (Array.isArray(content)) {
-      text = content
-        .filter((b) => b && b.type === 'text' && typeof b.text === 'string')
-        .map((b) => b.text)
-        .join('\n');
-    }
-    text = text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim();
+    const text = extractUserText(entry);
     if (text && !text.startsWith('<command-') && !text.startsWith('Caveat:')) {
       messages.push(text);
     }

@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {
+        "matcher": "Shell|Write",
+        "command": "node \"${RATCHET_ROOT}\"/bin/ratchet hook pre-tool-use"
+      }
+    ],
+    "beforeSubmitPrompt": [
+      {
+        "command": "node \"${RATCHET_ROOT}\"/bin/ratchet hook user-prompt-submit"
+      }
+    ],
+    "stop": [
+      {
+        "command": "node \"${RATCHET_ROOT}\"/bin/ratchet hook stop",
+        "loop_limit": 3
+      }
+    ]
+  }
+}
