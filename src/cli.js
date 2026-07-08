@@ -9,6 +9,7 @@ import { install, uninstall, installPreCommit } from './hooks/install.js';
 import { listPacks, addPack } from './packs.js';
 import { exportRules } from './export.js';
 import { doctor } from './doctor.js';
+import { recordCreate, recordDelete, recordUpdate, undo } from './history.js';
 
 const BOLD = '\x1b[1m';
 const DIM = '\x1b[2m';
@@ -42,6 +43,7 @@ const HELP = `
     ratchet stats               violations blocked, by rule
     ratchet snooze <id> [--hours n]   lift a rule temporarily (default 24h)
     ratchet rm <id>             delete a rule
+    ratchet undo                revert the last add/rm/mode/snooze change
     ratchet pack [list|add <name>]    curated starter rule sets
     ratchet export [file]       render rules into CLAUDE.md / AGENTS.md
     ratchet doctor              verify the installation
@@ -106,7 +108,10 @@ export async function run(argv) {
       if (sub === 'add') {
         if (!name) throw new Error('usage: ratchet pack add <name>');
         const { added, skipped } = addPack(name);
-        for (const id of added) console.log(`  ${c(GREEN, '✓')} ${id}`);
+        for (const id of added) {
+          recordCreate(id);
+          console.log(`  ${c(GREEN, '✓')} ${id}`);
+        }
         for (const id of skipped) console.log(c(DIM, `  – ${id} (already present)`));
         if (added.length > 0) console.log(`\n  review with ${c(BOLD, 'ratchet list')} — these are your files now.`);
         return;
@@ -145,8 +150,17 @@ export async function run(argv) {
       return cmdSnooze(positional[0], flags.hours || 24);
     case 'rm': {
       if (!positional[0]) throw new Error('usage: ratchet rm <id>');
-      if (!deleteRule(positional[0])) throw new Error(`no rule "${positional[0]}"`);
+      const rule = findRule(positional[0]);
+      if (!rule) throw new Error(`no rule "${positional[0]}"`);
+      recordDelete(rule);
+      deleteRule(positional[0]);
       console.log(`  removed ${positional[0]}`);
+      console.log(c(DIM, `  undo with: ratchet undo`));
+      return;
+    }
+    case 'undo': {
+      const result = undo();
+      console.log(result ? `  ${result.summary}` : '  nothing to undo');
       return;
     }
     default:
@@ -183,6 +197,7 @@ async function cmdInit(flags) {
       const { _cluster, ...clean } = rule;
       clean.id = uniqueId(clean.id);
       const file = saveRule(clean);
+      recordCreate(clean.id);
       console.log(c(GREEN, `     ✓ ${file}`));
       accepted++;
     }
@@ -212,6 +227,7 @@ function cmdAdd(statement, flags = {}) {
   }
   rule.id = uniqueId(rule.id || slugify(statement));
   const file = saveRule(rule);
+  recordCreate(rule.id);
   if (rule.tier === 'deterministic') {
     console.log(`  ${c(GREEN, '[enforced]')} ${rule.id} → ${file}`);
     console.log(c(DIM, `  check: ${JSON.stringify(rule.check)}`));
@@ -263,6 +279,7 @@ async function cmdReview(flags) {
       rule.id = uniqueId(rule.id);
       rule.evidence = [{ quote: cand.prompt.slice(0, 160), date: (cand.ts || '').slice(0, 10) }];
       console.log(c(GREEN, `     ✓ ${saveRule(rule)}`));
+      recordCreate(rule.id);
       kept++;
     }
   }
@@ -274,6 +291,7 @@ function cmdMode(id, mode) {
   if (!id) throw new Error(`usage: ratchet ${mode} <id>`);
   const rule = findRule(id);
   if (!rule) throw new Error(`no rule "${id}"`);
+  recordUpdate(rule);
   rule.mode = mode === 'enforce' ? 'enforce' : 'observe';
   rule.snooze_until = null;
   saveRule(rule);
@@ -376,6 +394,7 @@ function cmdSnooze(id, hours) {
   if (!id) throw new Error('usage: ratchet snooze <id> [--hours n]');
   const rule = findRule(id);
   if (!rule) throw new Error(`no rule "${id}"`);
+  recordUpdate(rule);
   rule.snooze_until = new Date(Date.now() + hours * 3600_000).toISOString();
   saveRule(rule);
   console.log(`  ${id} snoozed for ${hours}h (until ${rule.snooze_until})`);

@@ -330,6 +330,41 @@ const hookEvent = (tool, input, extra = {}) =>
   check('ratchet enforce restores blocking', /deny/.test(r2.out));
 }
 
+// --- undo: create / update / delete, and empty-stack behavior --------------------
+{
+  // Empty-history behavior needs a pristine dir — `work` already has plenty
+  // of history by this point in the suite.
+  const freshDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ratchet-fresh-'));
+  execSync('git init -q', { cwd: freshDir });
+  const none = cli(['undo'], { cwd: freshDir });
+  check('undo with empty history says so', /nothing to undo/.test(none.out));
+  fs.rmSync(freshDir, { recursive: true, force: true });
+
+  cli(['add', 'never write to /tmp/scratch-undo-test']);
+  const beforeUndo = fs.readdirSync(path.join(work, '.ratchet', 'rules')).length;
+  const undoAdd = cli(['undo']);
+  const afterUndo = fs.readdirSync(path.join(work, '.ratchet', 'rules')).length;
+  check('undo reverses the last add', afterUndo === beforeUndo - 1 && /undid: add/.test(undoAdd.out));
+
+  cli(['observe', 'no-git-push-without-consent']);
+  cli(['snooze', 'no-git-push-without-consent', '--hours', '2']); // two updates, LIFO
+  const undoSnooze = cli(['undo']);
+  check('undo reverses the snooze first (LIFO)', /undid: enforce\/observe\/snooze/.test(undoSnooze.out));
+  const stillObserve = cli(['hook', 'pre-tool-use'], { input: hookEvent('Bash', { command: 'git push' }) });
+  check('after undoing snooze, prior observe mode still applies', stillObserve.out.trim() === '');
+  cli(['undo']); // reverses the observe, back to enforce
+  const backToEnforce = cli(['hook', 'pre-tool-use'], { input: hookEvent('Bash', { command: 'git push' }) });
+  check('undo reverses the observe toggle too', /deny/.test(backToEnforce.out));
+
+  cli(['add', 'never edit .env.production']);
+  const envFile = fs.readdirSync(path.join(work, '.ratchet', 'rules')).find((f) => f.includes('protect'));
+  cli(['rm', envFile.replace('.yaml', '')]);
+  const beforeRestore = fs.readdirSync(path.join(work, '.ratchet', 'rules')).length;
+  const undoRm = cli(['undo']);
+  const afterRestore = fs.readdirSync(path.join(work, '.ratchet', 'rules')).length;
+  check('undo restores a deleted rule', afterRestore === beforeRestore + 1 && /undid: rm/.test(undoRm.out));
+}
+
 // --- v0.3: packs ---------------------------------------------------------------
 {
   const list = cli(['pack', 'list']);

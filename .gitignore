@@ -1,4 +1,9 @@
 node_modules/
-.ratchet/log.jsonl
 .dejavu/
 .DS_Store
+
+# ratchet local state — rules in .ratchet/rules/ are committed, this isn't
+.ratchet/log.jsonl
+.ratchet/history.jsonl
+.ratchet/candidates.jsonl
+.ratchet/state/

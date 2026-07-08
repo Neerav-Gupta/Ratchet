@@ -122,10 +122,14 @@ ratchet enforce/observe <id> set a rule's teeth
 ratchet check [--json]       static enforcement for pre-commit / CI
 ratchet stats                violations caught, per rule (+ escalation hints)
 ratchet snooze <id>          lift a rule temporarily (default 24h)
+ratchet rm <id>               delete a rule
+ratchet undo                 revert the last add/rm/mode/snooze change
 ratchet pack list|add <name> curated starter rule sets
 ratchet export [file]        render the rulebook into CLAUDE.md / AGENTS.md
 ratchet doctor               verify the installation
 ```
+
+Made a rule too aggressive, or deleted the wrong one? `ratchet undo` reverses the last change — it's the safety valve for a tool whose entire job is enforcement.
 
 CI: copy [examples/github-action.yml](examples/github-action.yml) into `.github/workflows/` and violations fail the build.
 
