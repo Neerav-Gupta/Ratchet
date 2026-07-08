@@ -145,6 +145,44 @@ const hookEvent = (tool, input, extra = {}) =>
   const log = cli(['hook', 'pre-tool-use'], { input: hookEvent('Write', { file_path: path.join(work, 'a.ts'), content: 'console.log(1)' }) });
   check('hook denies banned content', /deny/.test(log.out));
 
+  const codex = cli(['hook', 'pre-tool-use'], {
+    input: JSON.stringify({
+      agent: 'codex',
+      hook_event_name: 'pre-tool-use',
+      cwd: work,
+      tool_name: 'functions.exec_command',
+      tool_input: { cmd: 'git push origin main' },
+    }),
+  });
+  check('codex hook denies git push with block decision', /"decision":"block"/.test(codex.out));
+
+  // Cursor's beforeShellExecution sends the command as a flat `command`
+  // field (not nested in tool_input) — confirmed against Cursor's published
+  // hook schema (docs.cursor.com/agent/hooks).
+  const cursorShell = cli(['hook', 'pre-tool-use'], {
+    input: JSON.stringify({
+      hook_event_name: 'beforeShellExecution',
+      cwd: work,
+      command: 'git push origin main',
+    }),
+  });
+  check('cursor beforeShellExecution hook denies with permission:deny', /"permission":"deny"/.test(cursorShell.out));
+
+  const cursorAllow = cli(['hook', 'pre-tool-use'], {
+    input: JSON.stringify({ hook_event_name: 'beforeShellExecution', cwd: work, command: 'git status' }),
+  });
+  check('cursor hook allows innocent command silently', cursorAllow.out.trim() === '');
+
+  const cursorEdit = cli(['hook', 'pre-tool-use'], {
+    input: JSON.stringify({
+      hook_event_name: 'preToolUse',
+      cwd: work,
+      tool_name: 'Write',
+      tool_input: { path: path.join(work, '.env'), content: 'X=1' },
+    }),
+  });
+  check('cursor generic preToolUse (Write on protected path) denies', /"permission":"deny"/.test(cursorEdit.out));
+
   const garbage = cli(['hook', 'pre-tool-use'], { input: 'not json{{' });
   check('hook fails open on garbage input', garbage.code === 0 && garbage.out.trim() === '');
 
@@ -199,11 +237,32 @@ const hookEvent = (tool, input, extra = {}) =>
   const settings = JSON.parse(fs.readFileSync(path.join(work, '.claude', 'settings.json'), 'utf8'));
   check('install writes PreToolUse hook', JSON.stringify(settings.hooks.PreToolUse).includes('ratchet'));
   check('install writes UserPromptSubmit hook', !!settings.hooks.UserPromptSubmit);
+  check('install writes Codex hook config', fs.readFileSync(path.join(work, '.codex', 'config.toml'), 'utf8').includes('ratchet:hooks:start'));
+  const cursorConfig = JSON.parse(fs.readFileSync(path.join(work, '.cursor', 'hooks.json'), 'utf8'));
+  check('install writes Cursor preToolUse hook', !!cursorConfig.hooks.preToolUse?.length);
+  check('install writes Cursor beforeSubmitPrompt hook', !!cursorConfig.hooks.beforeSubmitPrompt?.length);
+  check('install writes Cursor stop hook with loop_limit', cursorConfig.hooks.stop?.[0]?.loop_limit === 3);
   cli(['install']);
   check('install is idempotent', settings.hooks.PreToolUse.length === JSON.parse(fs.readFileSync(path.join(work, '.claude', 'settings.json'), 'utf8')).hooks.PreToolUse.length);
+  check(
+    'cursor install is idempotent too',
+    JSON.parse(fs.readFileSync(path.join(work, '.cursor', 'hooks.json'), 'utf8')).hooks.preToolUse.length === 1
+  );
   cli(['uninstall']);
   const after = JSON.parse(fs.readFileSync(path.join(work, '.claude', 'settings.json'), 'utf8'));
   check('uninstall removes our hooks', !JSON.stringify(after).includes('ratchet'));
+  check('uninstall removes Codex hook block', !fs.readFileSync(path.join(work, '.codex', 'config.toml'), 'utf8').includes('ratchet:hooks:start'));
+  check(
+    'uninstall removes Cursor hooks',
+    !JSON.stringify(JSON.parse(fs.readFileSync(path.join(work, '.cursor', 'hooks.json'), 'utf8'))).includes('ratchet')
+  );
+
+  // --install-target flags touch only the requested config.
+  fs.rmSync(path.join(work, '.claude', 'settings.json'), { force: true });
+  fs.rmSync(path.join(work, '.cursor', 'hooks.json'), { force: true });
+  cli(['install', '--cursor']);
+  check('install --cursor writes only the Cursor config', fs.existsSync(path.join(work, '.cursor', 'hooks.json')) && !fs.existsSync(path.join(work, '.claude', 'settings.json')));
+  cli(['install']); // restore claude hooks for later tests in this file
 }
 
 // --- init mining end-to-end ------------------------------------------------------
@@ -231,7 +290,7 @@ const hookEvent = (tool, input, extra = {}) =>
   ].join('\n'));
 
   const initWork = fs.mkdtempSync(path.join(os.tmpdir(), 'ratchet-init-'));
-  const r = cli(['init', '--yes', '--dir', claudeDir], { cwd: initWork });
+  const r = cli(['init', '--yes', '--agent', 'claude', '--dir', claudeDir], { cwd: initWork });
   const saved = fs.existsSync(path.join(initWork, '.ratchet', 'rules'))
     ? fs.readdirSync(path.join(initWork, '.ratchet', 'rules'))
     : [];
@@ -240,6 +299,87 @@ const hookEvent = (tool, input, extra = {}) =>
   check('mined push correction became a rule with evidence', pushRules.length >= 1 &&
     fs.readFileSync(path.join(initWork, '.ratchet', 'rules', pushRules[0]), 'utf8').includes('evidence'));
   fs.rmSync(claudeDir, { recursive: true, force: true });
+  fs.rmSync(initWork, { recursive: true, force: true });
+}
+
+// --- init mining from Codex transcripts -----------------------------------------
+{
+  const codexDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ratchet-codex-'));
+  const day = path.join(codexDir, '2026', '07', '07');
+  fs.mkdirSync(day, { recursive: true });
+  const T0 = Date.parse('2026-07-07T10:00:00Z');
+  const eventMsg = (text, days) =>
+    JSON.stringify({
+      timestamp: new Date(T0 + days * 86400_000).toISOString(),
+      type: 'event_msg',
+      payload: { type: 'user_message', message: text },
+    });
+  const responseItem = (text, days) =>
+    JSON.stringify({
+      timestamp: new Date(T0 + days * 86400_000).toISOString(),
+      type: 'response_item',
+      payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text }] },
+    });
+  fs.writeFileSync(path.join(day, 'rollout-a.jsonl'), [
+    eventMsg("From now on don't push to github unless I say so", 0),
+    responseItem("I already said don't push to github without asking", 3),
+    eventMsg("You still keep trying to push to github without asking", 6),
+  ].join('\n'));
+
+  const initWork = fs.mkdtempSync(path.join(os.tmpdir(), 'ratchet-codex-init-'));
+  const r = cli(['init', '--yes', '--agent', 'codex', '--dir', codexDir], { cwd: initWork });
+  const saved = fs.existsSync(path.join(initWork, '.ratchet', 'rules'))
+    ? fs.readdirSync(path.join(initWork, '.ratchet', 'rules'))
+    : [];
+  check('init mines Codex transcripts into rules', saved.some((f) => /push/.test(f)) && /install/.test(r.out));
+  fs.rmSync(codexDir, { recursive: true, force: true });
+  fs.rmSync(initWork, { recursive: true, force: true });
+}
+
+// --- init mining from Cursor transcripts -----------------------------------------
+{
+  // Layout and entry shape confirmed against a real
+  // ~/.cursor/projects/<project>/agent-transcripts/<session>/<session>.jsonl
+  // file on disk: {role:'user', message:{content:[{type:'text', text}]}}
+  // with no per-message timestamp — only <timestamp>/<user_query> wrapper
+  // tags inside the text itself, which extract.js strips.
+  const cursorDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ratchet-cursor-'));
+  const project = path.join(cursorDir, 'my-project', 'agent-transcripts');
+  const cursorEntry = (text) =>
+    JSON.stringify({
+      role: 'user',
+      message: { content: [{ type: 'text', text: `<timestamp>Tue, Jul 7, 2026</timestamp>\n<user_query>\n${text}\n</user_query>` }] },
+    });
+
+  const session1 = path.join(project, 'sess-1');
+  fs.mkdirSync(session1, { recursive: true });
+  const file1 = path.join(session1, 'sess-1.jsonl');
+  fs.writeFileSync(file1, [cursorEntry("From now on don't push to github unless I say so")].join('\n'));
+
+  const session2 = path.join(project, 'sess-2');
+  fs.mkdirSync(session2, { recursive: true });
+  const file2 = path.join(session2, 'sess-2.jsonl');
+  fs.writeFileSync(file2, [cursorEntry("I already said don't push to github without asking")].join('\n'));
+
+  // No per-message timestamp exists in the real format — the mtime fallback
+  // is what must supply distinct episode timestamps across these two files.
+  const now = Date.now();
+  fs.utimesSync(file1, new Date(now - 6 * 86400_000), new Date(now - 6 * 86400_000));
+  fs.utimesSync(file2, new Date(now), new Date(now));
+
+  const initWork = fs.mkdtempSync(path.join(os.tmpdir(), 'ratchet-cursor-init-'));
+  const r = cli(['init', '--yes', '--agent', 'cursor', '--dir', cursorDir], { cwd: initWork });
+  const saved = fs.existsSync(path.join(initWork, '.ratchet', 'rules'))
+    ? fs.readdirSync(path.join(initWork, '.ratchet', 'rules'))
+    : [];
+  check('init mines Cursor transcripts into rules', saved.some((f) => /push/.test(f)) && /install/.test(r.out));
+  const pushFile = saved.find((f) => /push/.test(f));
+  check(
+    'mined Cursor rule strips <timestamp>/<user_query> wrapper tags from evidence',
+    pushFile &&
+      !fs.readFileSync(path.join(initWork, '.ratchet', 'rules', pushFile), 'utf8').includes('<user_query>')
+  );
+  fs.rmSync(cursorDir, { recursive: true, force: true });
   fs.rmSync(initWork, { recursive: true, force: true });
 }
 
@@ -252,15 +392,21 @@ const hookEvent = (tool, input, extra = {}) =>
   check('add --semantic creates a semantic rule', !!semFile &&
     fs.readFileSync(path.join(work, '.ratchet', 'rules', semFile), 'utf8').includes('tier: semantic'));
 
-  // Fake judges via the RATCHET_JUDGE_CMD escape hatch.
-  const failJudge = path.join(work, 'judge-fail.sh');
+  // Fake judges via the RATCHET_JUDGE_CMD escape hatch. Plain Node scripts,
+  // invoked explicitly via `node`, so the test needs neither a shebang nor
+  // an executable bit — Windows honors neither.
+  const failJudge = path.join(work, 'judge-fail.mjs');
   fs.writeFileSync(
     failJudge,
-    `#!/bin/sh\ncat > /dev/null\necho '{"violations":[{"rule_id":"keep-code-comments-minimal","reason":"every line is commented"}]}'\n`,
-    { mode: 0o755 }
+    "import fs from 'node:fs';\nfs.readFileSync(0, 'utf8');\n" +
+      "console.log(JSON.stringify({violations:[{rule_id:'keep-code-comments-minimal',reason:'every line is commented'}]}));\n"
   );
-  const passJudge = path.join(work, 'judge-pass.sh');
-  fs.writeFileSync(passJudge, `#!/bin/sh\ncat > /dev/null\necho '{"violations":[]}'\n`, { mode: 0o755 });
+  const passJudge = path.join(work, 'judge-pass.mjs');
+  fs.writeFileSync(
+    passJudge,
+    "import fs from 'node:fs';\nfs.readFileSync(0, 'utf8');\nconsole.log(JSON.stringify({violations:[]}));\n"
+  );
+  const nodeCmd = (script) => `node "${script}"`;
 
   // Need a dirty working tree for the judge to look at.
   execSync('git add -A && git -c user.email=t@t -c user.name=t commit -qm base', { cwd: work });
@@ -270,25 +416,25 @@ const hookEvent = (tool, input, extra = {}) =>
   const stopEvent = JSON.stringify({ session_id: 'sem1', cwd: work, stop_hook_active: false });
   const blocked = execFileSync('node', [bin, 'hook', 'stop'], {
     encoding: 'utf8', cwd: work, input: stopEvent,
-    env: { ...process.env, RATCHET_JUDGE_CMD: failJudge },
+    env: { ...process.env, RATCHET_JUDGE_CMD: nodeCmd(failJudge) },
   });
   check('stop hook blocks on judged violation', /"decision":"block"/.test(blocked) && /every line is commented/.test(blocked));
 
   const looped = execFileSync('node', [bin, 'hook', 'stop'], {
     encoding: 'utf8', cwd: work, input: JSON.stringify({ session_id: 'sem1', cwd: work, stop_hook_active: true }),
-    env: { ...process.env, RATCHET_JUDGE_CMD: failJudge },
+    env: { ...process.env, RATCHET_JUDGE_CMD: nodeCmd(failJudge) },
   });
   check('stop hook never blocks twice in a row (loop guard)', looped.trim() === '');
 
   const passed = execFileSync('node', [bin, 'hook', 'stop'], {
     encoding: 'utf8', cwd: work, input: stopEvent,
-    env: { ...process.env, RATCHET_JUDGE_CMD: passJudge },
+    env: { ...process.env, RATCHET_JUDGE_CMD: nodeCmd(passJudge) },
   });
   check('stop hook passes clean verdict silently', passed.trim() === '');
 
   const cached = execFileSync('node', [bin, 'hook', 'stop'], {
     encoding: 'utf8', cwd: work, input: stopEvent,
-    env: { ...process.env, RATCHET_JUDGE_CMD: failJudge }, // would fail, but cache says pass
+    env: { ...process.env, RATCHET_JUDGE_CMD: nodeCmd(failJudge) }, // would fail, but cache says pass
   });
   check('verdict cache skips re-judging an unchanged diff', cached.trim() === '');
 
