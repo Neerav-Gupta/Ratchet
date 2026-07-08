@@ -139,14 +139,25 @@ CI: copy [examples/github-action.yml](examples/github-action.yml) into `.github/
 - **Escalate, don't ambush.** Set `mode: observe` on a new rule to log would-be blocks before enforcing.
 - **Every block explains itself.** The deny reason tells the agent what the user taught, and tells you how to snooze it. `ratchet why` shows the original conversation.
 
+## How this differs from the obvious alternatives
+
+**"Isn't this just CLAUDE.md?"** No — that's the whole point. CLAUDE.md is prose the model reads and can choose to ignore; a hook that returns `permissionDecision: "deny"` cannot be talked out of it, even under `--dangerously-skip-permissions`. Ratchet's `export` command *writes to* CLAUDE.md as a human-readable mirror of the enforced rules — it's a side effect, not the mechanism.
+
+**"Doesn't Claude Code's auto-memory / `/insights` already do this?"** Those detect repeated instructions and suggest CLAUDE.md additions — advisory, and Claude-only. Ratchet's `init` does similar mining, but every rule it produces is either a deterministic check, a model-judged gate that blocks completion, or an honest reminder — never just a hope that the model reads its own notes more carefully next time.
+
+**"What about tellonce / other correction-memory tools?"** Closest relative — some, like tellonce, share the "compile corrections into enforcement" idea and are cross-agent memory plugins. The difference is where the rules live: Ratchet's rules are YAML files in `.ratchet/rules/`, committed to the repo, PR-reviewable, and enforced identically in three places — the live agent session, `git commit` (pre-commit), and CI. A memory plugin's state lives in the plugin's own store; if you switch tools, stop paying for the plugin, or just want a teammate to see *why* a rule exists without installing anything, there's nothing to read. A rule in this repo is a rule you own.
+
 ## Roadmap
 
 - [x] Semantic tier: LLM-judged rules that block "done" until satisfied
 - [x] Live capture: corrections noticed as you type, promoted via `ratchet review`
 - [x] Rule packs, CLAUDE.md/AGENTS.md export, pre-commit + CI enforcement
+- [x] Claude Code plugin packaging (`/plugin install ratchet`)
+- [x] `ratchet undo` — revert the last rule change
 - [ ] Cursor / Codex hook adapters — same rules, every agent
-- [ ] Claude Code plugin packaging (`/plugin install ratchet`)
 - [ ] Community pack registry
+
+See [CHANGELOG.md](CHANGELOG.md) for what shipped in each version. Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
