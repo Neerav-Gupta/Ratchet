@@ -222,6 +222,34 @@ const hookEvent = (tool, input, extra = {}) =>
   const stale = cli(['hook', 'pre-tool-use'], { input: hookEvent('Bash', { command: 'git push' }, { transcript: staleYes }) });
   check('an earlier "yes" does not override a later "no wait" (recency wins)', /deny/.test(stale.out));
 
+  // Regression: a real Claude Code session showed that replying to the
+  // AskUserQuestion tool ("Yes, run it (Recommended)") never counted as
+  // consent at all. That answer isn't a text chat message — it's a
+  // tool_result content block, which cleanContent() rightly ignores in
+  // general (a Bash command's stdout isn't the user talking). The
+  // structured answer lives in the entry's top-level toolUseResult.answers
+  // field instead, matching the real shape Claude Code writes to disk.
+  const askUserQuestionTranscript = (() => {
+    const p = path.join(work, `askq-${Date.now()}.jsonl`);
+    const question = 'Can I push these changes now?';
+    fs.writeFileSync(
+      p,
+      [
+        JSON.stringify({
+          type: 'user',
+          uuid: crypto.randomUUID(),
+          message: { role: 'user', content: [{ type: 'tool_result', content: `Your questions have been answered: "${question}"="Yes, run it (Recommended)".`, tool_use_id: 'toolu_x' }] },
+          toolUseResult: { questions: [{ question }], answers: { [question]: 'Yes, run it (Recommended)' }, annotations: {} },
+        }),
+      ].join('\n')
+    );
+    return p;
+  })();
+  const askUserQuestion = cli(['hook', 'pre-tool-use'], {
+    input: hookEvent('Bash', { command: 'git push' }, { transcript: askUserQuestionTranscript }),
+  });
+  check('AskUserQuestion "Yes, run it" answer lifts the block', askUserQuestion.out.trim() === '');
+
   const env = cli(['hook', 'pre-tool-use'], { input: hookEvent('Edit', { file_path: path.join(work, '.env') }) });
   check('hook denies protected file edit', /deny/.test(env.out));
 

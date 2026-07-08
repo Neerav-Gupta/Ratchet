@@ -35,6 +35,18 @@ export function extractUserText(entry, opts = {}) {
     return cleanContent(entry.payload.content, minLen);
   }
 
+  // A reply to Claude Code's AskUserQuestion tool is genuine user consent —
+  // "Yes, run it (Recommended)" — but it's delivered as a tool_result content
+  // block, not a text message. cleanContent() rightly ignores tool_result
+  // blocks in general (a Bash command's output isn't the user talking), so
+  // this needs its own path: the structured answers live in the entry's
+  // top-level toolUseResult field, not inside message.content at all.
+  const answers = entry.type === 'user' && entry.toolUseResult?.answers;
+  if (answers && typeof answers === 'object') {
+    const text = Object.values(answers).filter((v) => typeof v === 'string').join('\n');
+    if (text) return cleanText(text, minLen);
+  }
+
   const isClaudeUser = entry.type === 'user';
   const isCursorUser = entry.role === 'user' && entry.message;
   if (!isClaudeUser && !isCursorUser) return null;

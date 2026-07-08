@@ -3,6 +3,11 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/); this project has not yet reached v1.0, so minor versions may include breaking changes to the rule schema.
 
+## [0.5.5] — 2026-07-08
+
+### Fixed
+Found by inspecting a real, live transcript where consent still wasn't being recognized despite 0.5.2–0.5.4: replying to Claude Code's own `AskUserQuestion` tool ("Yes, run it (Recommended)") is delivered as a `tool_result` content block, not a text chat message — so it never reached the consent-checking code at all. `cleanContent()` correctly ignores generic `tool_result` blocks (a Bash command's stdout isn't the user talking), but this one specific case *is* genuine user consent. `extractUserText()` now also checks the entry's top-level `toolUseResult.answers` field, which is where Claude Code actually writes the selected answer text.
+
 ## [0.5.4] — 2026-07-08
 
 ### Fixed
