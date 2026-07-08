@@ -3,6 +3,21 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/); this project has not yet reached v1.0, so minor versions may include breaking changes to the rule schema.
 
+## [0.5.0] — 2026-07-08
+
+### Added
+- Codex support: `ratchet init --agent codex` mines `~/.codex/sessions`, `ratchet install --codex` writes a managed block to `.codex/config.toml`, and the hook adapter normalizes Codex-shaped command/prompt/stop events.
+- Cursor support: `ratchet init --agent cursor` mines `~/.cursor/projects/*/agent-transcripts`, `ratchet install --cursor` writes `.cursor/hooks.json`, and the hook adapter normalizes Cursor's `preToolUse`/`beforeShellExecution`/`beforeSubmitPrompt`/`stop` events. Verified against real transcript and hook-schema data, not just the published docs.
+
+### Fixed
+Found by validating the cross-agent adapter against real Claude/Cursor/Codex data on a live machine rather than synthetic fixtures alone:
+- **Regression affecting Claude Code itself**: the tool-name normalizer remapped `Edit` → `Write` internally, but `rules.js` reads different input fields for each (`new_string` vs `content`) — so every real Claude Code `Edit` call silently bypassed `content`-tier rules. Only `Write` calls were ever checked.
+- Cursor's edit tool (`StrReplace`) wasn't mapped at all, and its input shape (`path`/`old_string`/`new_string`) didn't match what the rule engine expects even where names overlapped.
+- `isOurs()` (used by both idempotency checks and `uninstall`) required a Claude-shaped `{type: 'command'}` field that Cursor's real hook entries never have — silently duplicating entries on repeat `install --cursor` and making `uninstall --cursor` a no-op.
+- Codex injects `<environment_context>` blocks as user-role messages; these were being mined as if the human had typed them.
+- Cursor transcript entries carry no per-message timestamp. `ratchet init`'s resend/episode-gating logic defaulted to `0` for all of them, which would silently collapse genuinely repeated instructions across unrelated sessions into a single occurrence. Now falls back to the session file's mtime, so distinct sessions get distinct timestamps.
+- The Stop-hook semantic judge's verdict cache keyed on `event.session_id`, but Cursor's common hook fields use `conversation_id` — every Cursor conversation in a repo would have shared one cache bucket.
+
 ## [0.4.0] — 2026-07-08
 
 ### Added

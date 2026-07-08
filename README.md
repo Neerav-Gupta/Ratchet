@@ -8,7 +8,7 @@
 
 You told Claude *"don't push to github until I say so."* It pushed anyway — four times over three weeks. You wrote it in CLAUDE.md. It pushed again. That's because CLAUDE.md is **advice**: prose the model reads and sometimes ignores.
 
-Ratchet is **law**: it compiles what you teach your agent into deterministic checks wired into Claude Code's hook system. A blocked call is blocked — even in `--dangerously-skip-permissions` mode. Like a ratchet, rules only tighten: every correction becomes permanent, with the receipts attached.
+Ratchet is **law**: it compiles what you teach your agent into deterministic checks wired into agent hook systems. A blocked call is blocked — even in `--dangerously-skip-permissions` mode. Like a ratchet, rules only tighten: every correction becomes permanent, with the receipts attached.
 
 ```
 $ ratchet init
@@ -45,14 +45,14 @@ But the moment *you* say "push it" in the session, the same rule steps aside. Co
 npm i -g ratchet-cc
 cd your-project
 ratchet init        # mine your Claude Code history → proposed rules with evidence
-ratchet install     # wire hooks into ./.claude/settings.json
+ratchet install     # wire hooks into Claude Code, Cursor, and Codex configs
 ```
 
 Requires Node 18+. Zero dependencies. Everything runs locally.
 
 ## How it works
 
-**1. Capture.** `ratchet init` mines your local `~/.claude/projects` transcripts for repeated instructions and corrections (deduping session forks and re-sends, gating by time-separated occasions — not raw string counts). Or teach rules directly:
+**1. Capture.** `ratchet init` mines your local Claude Code, Cursor, and Codex transcripts for repeated instructions and corrections (deduping session forks and re-sends, gating by time-separated occasions — not raw string counts). Or teach rules directly:
 
 ```sh
 ratchet add "never push to github unless I tell you to"
@@ -115,7 +115,10 @@ Pack rules are copied into *your* `.ratchet/rules/` — edit or delete them like
 ratchet init [--yes]         mine history, propose rules with evidence
 ratchet add <statement>      teach a rule in plain language (--semantic for judged rules)
 ratchet review [--yes]       accept corrections captured live from sessions
-ratchet install/uninstall    wire/remove hooks in .claude/settings.json
+ratchet install/uninstall    wire/remove hooks for Claude Code, Cursor, and Codex
+   install --claude          only .claude/settings.json
+   install --cursor          only .cursor/hooks.json
+   install --codex           only .codex/config.toml
    install --pre-commit      also run `ratchet check` before every commit
 ratchet list / why <id>      rules, status, and the conversations behind them
 ratchet enforce/observe <id> set a rule's teeth
@@ -154,7 +157,8 @@ CI: copy [examples/github-action.yml](examples/github-action.yml) into `.github/
 - [x] Rule packs, CLAUDE.md/AGENTS.md export, pre-commit + CI enforcement
 - [x] Claude Code plugin packaging (`/plugin install ratchet`)
 - [x] `ratchet undo` — revert the last rule change
-- [ ] Cursor / Codex hook adapters — same rules, every agent
+- [x] Codex hook adapter + transcript mining
+- [x] Cursor hook adapter + transcript mining
 - [ ] Community pack registry
 
 See [CHANGELOG.md](CHANGELOG.md) for what shipped in each version. Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).

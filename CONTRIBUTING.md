@@ -10,7 +10,7 @@ cd Ratchet
 node bin/ratchet help   # runs from source, nothing to install
 ```
 
-To exercise it against a real project, point `--dir` at a Claude Code transcripts folder or just `cd` into any repo and run `node /path/to/Ratchet/bin/ratchet init`.
+To exercise it against a real project, point `--dir` at a Claude Code, Cursor, or Codex transcript folder or just `cd` into any repo and run `node /path/to/Ratchet/bin/ratchet init`.
 
 ## Running the tests
 
@@ -33,7 +33,8 @@ Tests must pass on Linux, macOS, and Windows — CI runs the full matrix. If you
 | `src/history.js` | The `undo` stack |
 | `src/store.js` | Rule file I/O, the violation log |
 | `packs/` | Bundled rule packs — see below |
-| `.claude-plugin/`, `hooks/hooks.json` | Plugin packaging |
+| `.claude-plugin/`, `hooks/hooks.json` | Claude Code plugin packaging |
+| `hooks/cursor-hooks.json`, `hooks/codex-config.toml` | Example hook config for other agents |
 
 ## Adding a rule pack
 
