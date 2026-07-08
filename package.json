@@ -36,6 +36,8 @@
     "url": "git+https://github.com/Neerav-Gupta/Ratchet.git"
   },
   "scripts": {
-    "test": "node test/run.js"
+    "test": "node test/run.js",
+    "prepack": "node scripts/use-npm-readme.mjs",
+    "postpack": "git checkout -- README.md"
   }
 }

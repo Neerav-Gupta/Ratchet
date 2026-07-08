@@ -150,17 +150,6 @@ CI: copy [examples/github-action.yml](examples/github-action.yml) into `.github/
 
 **"What about tellonce / other correction-memory tools?"** Closest relative — some, like tellonce, share the "compile corrections into enforcement" idea and are cross-agent memory plugins. The difference is where the rules live: Ratchet's rules are YAML files in `.ratchet/rules/`, committed to the repo, PR-reviewable, and enforced identically in three places — the live agent session, `git commit` (pre-commit), and CI. A memory plugin's state lives in the plugin's own store; if you switch tools, stop paying for the plugin, or just want a teammate to see *why* a rule exists without installing anything, there's nothing to read. A rule in this repo is a rule you own.
 
-## Roadmap
-
-- [x] Semantic tier: LLM-judged rules that block "done" until satisfied
-- [x] Live capture: corrections noticed as you type, promoted via `ratchet review`
-- [x] Rule packs, CLAUDE.md/AGENTS.md export, pre-commit + CI enforcement
-- [x] Claude Code plugin packaging (`/plugin install ratchet`)
-- [x] `ratchet undo` — revert the last rule change
-- [x] Codex hook adapter + transcript mining
-- [x] Cursor hook adapter + transcript mining
-- [ ] Community pack registry
-
 See [CHANGELOG.md](CHANGELOG.md) for what shipped in each version. Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
