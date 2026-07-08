@@ -3,7 +3,13 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/); this project has not yet reached v1.0, so minor versions may include breaking changes to the rule schema.
 
-## [0.5.7] — 2026-07-08
+## [0.6.0] — 2026-07-08
+
+### Added
+- `ratchet add` now previews a reminder-tier compile result and asks for confirmation before saving, since a silently-saved, unenforceable reminder was the exact failure mode behind several bugs found this session (an "an"/"any" in the statement, missing consent words, etc.) — better to catch it immediately and rephrase than discover later it never fired. Only pauses when actually interactive; `--yes` or a non-interactive/scripted caller (CI, another tool, this test suite) saves immediately, unchanged from before.
+
+### Fixed
+- Two doc references (README, `add --help`) still described consent as lasting "for the session" — stale since 0.5.7 made it per-invocation. Corrected.
 
 ### Fixed
 - **Consent was session-wide, not per-invocation.** Found via real user report: saying "npm" once early in a session silently authorized every later, unrelated npm command for the rest of that session, because the exact-trigger-word half of `unless_user_said` scanned the *entire* transcript with no expiry — while the bare-affirmative half (added in 0.5.3) was already correctly scoped to only the most recent message. Both checks now only look at the single most recent user message. "Ask me before you run npm" means every time, not once ever — a tool whose whole premise is enforced law shouldn't quietly become a one-time unlock.

@@ -28,7 +28,7 @@ Then, when the agent tries it anyway:
    (command matches /\bgit\s+push\b/ and the user has not said "push" this session)
 ```
 
-But the moment *you* say "push it" in the session, the same rule steps aside. Consent-aware enforcement, not a blunt firewall.
+But the moment *you* reply "push it," the same rule steps aside — for that one attempt. Consent-aware enforcement, not a blunt firewall, and not a standing session-wide unlock either: say yes once for one thing, and the next unrelated attempt still asks.
 
 ## Install
 
@@ -64,7 +64,7 @@ ratchet add 'never use `console.log` in *.ts files'
 
 | Check type | Example | Enforced at |
 |---|---|---|
-| `command` | git push ban, with `unless_user_said` consent scan of the live session transcript | PreToolUse hook |
+| `command` | git push ban, with `unless_user_said` checking your most recent reply for consent | PreToolUse hook |
 | `file_protect` | `.env`, `prod/**` — no tool may write them | PreToolUse hook |
 | `content` | banned patterns in written code, scoped by glob | PreToolUse hook + `ratchet check` |
 | `semantic` | "keep comments minimal" — a model judges the session's diff at Stop and **blocks "done"** until satisfied | Stop hook |

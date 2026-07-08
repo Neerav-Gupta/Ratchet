@@ -76,21 +76,27 @@ const COMMAND_HELP = {
     ratchet init --agent claude --yes
 `,
   add: `
-  ratchet add <statement> [--semantic]
+  ratchet add <statement> [--semantic] [--yes]
 
   Teach a rule in plain language. Compiles to the strongest enforceable
   form it can: a command/file/content check blocked at PreToolUse, or
-  an honest reminder if nothing deterministic applies.
+  an honest reminder if nothing deterministic applies. If it only
+  manages a reminder, you'll be asked to confirm before saving —
+  rephrasing to name a specific command or file usually gets a real,
+  enforced check instead.
 
   A consent clause in the statement ("without asking me", "unless I
   say so", "without my permission") makes the rule liftable — say the
-  trigger word, or a bare "yes"/"go ahead" in reply to a prompt, and it
-  steps aside for that session. Without one, the rule is unconditional.
+  trigger word, or a bare "yes"/"go ahead", in direct reply to the
+  block that just happened. Consent is per-action, not a standing
+  session-wide unlock: it only counts as your most recent message.
+  Without a consent clause, the rule is unconditional.
 
   options
     --semantic    skip the compiler; judge this rule with a model at
                   the Stop hook instead (for rules that can't be
                   reduced to a regex, e.g. "keep comments minimal")
+    --yes         skip the reminder-tier confirmation prompt
 
   examples
     ratchet add "never push to github unless I tell you to"
@@ -422,9 +428,29 @@ async function cmdInit(flags) {
   );
 }
 
-function cmdAdd(statement, flags = {}) {
+async function cmdAdd(statement, flags = {}) {
   if (!statement) throw new Error('usage: ratchet add "never push without asking"');
-  let rule;
+  let rule = flags.semantic ? null : compile(statement);
+
+  // A reminder never blocks anything — this is exactly the failure mode
+  // that bit real usage repeatedly this session (an "an"/"any" in the
+  // statement silently produced an unenforceable rule). Give a chance to
+  // rephrase before saving, rather than finding out later it never fired.
+  if (rule && rule.tier === 'reminder' && !flags.semantic) {
+    console.log(`  ${c(CYAN, '[reminder]')} ${rule.id}`);
+    console.log(
+      c(DIM, '  not deterministically checkable — injected as context when relevant, never blocks anything.')
+    );
+    console.log(c(DIM, '  Rephrase to name a specific command/file, or add --semantic to have a model enforce it.'));
+    if (!flags.yes) {
+      const proceed = await confirmProceed(c(YELLOW, '  Save as a reminder anyway? [Y/n] '));
+      if (!proceed) {
+        console.log(c(DIM, '  not saved — try rephrasing.'));
+        return;
+      }
+    }
+  }
+
   if (flags.semantic) {
     rule = {
       id: slugify(statement),
@@ -434,8 +460,6 @@ function cmdAdd(statement, flags = {}) {
       created: new Date().toISOString().slice(0, 10),
       snooze_until: null,
     };
-  } else {
-    rule = compile(statement);
   }
   rule.id = uniqueId(rule.id || slugify(statement));
   const file = saveRule(rule);
@@ -449,11 +473,7 @@ function cmdAdd(statement, flags = {}) {
       c(DIM, '  judged by a model at Stop — the agent cannot finish while this is violated')
     );
   } else {
-    console.log(`  ${c(CYAN, '[reminder]')} ${rule.id} → ${file}`);
-    console.log(
-      c(DIM, '  not deterministically checkable — injected as context when relevant.') +
-        c(DIM, ' Use --semantic to have a model enforce it at Stop instead.')
-    );
+    console.log(`  ${c(GREEN, '✓')} saved → ${file}`);
   }
 }
 
@@ -619,6 +639,23 @@ function ask(question) {
     rl.question(question, (answer) => {
       rl.close();
       resolve(/^y(es)?$/i.test(answer.trim()));
+    })
+  );
+}
+
+/**
+ * Opposite default from ask(): proceeds unless explicitly declined. Used
+ * for "are you sure" safety nets where the non-interactive/scripted case
+ * (CI, tests, another tool piping in `ratchet add`) must keep working
+ * exactly as before — only an interactive human typing "n" aborts.
+ */
+function confirmProceed(question) {
+  if (!process.stdin.isTTY) return Promise.resolve(true);
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) =>
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(!/^n(o)?$/i.test(answer.trim()));
     })
   );
 }

@@ -157,6 +157,34 @@ cli(['add', 'prefer small focused diffs when refactoring']);
 
 check('add created 4 rule files', fs.readdirSync(path.join(work, '.ratchet', 'rules')).length === 4);
 
+// Regression: `ratchet add` used to save silently with zero confirmation,
+// even when the compiler could only manage an unenforceable reminder —
+// exactly the failure mode that bit real usage repeatedly this session.
+// Non-interactive callers (scripts, CI, this test suite) must still get
+// the old save-immediately behavior; confirmProceed() only pauses for an
+// actual interactive TTY.
+{
+  const reminderAdd = cli(['add', 'be thoughtful about naming things']);
+  check(
+    'add previews a reminder-tier compile before saving',
+    /\[reminder\]/.test(reminderAdd.out) && /never blocks anything/.test(reminderAdd.out)
+  );
+  check(
+    'non-interactive add still saves the reminder (no TTY to block on)',
+    /saved/.test(reminderAdd.out) &&
+      fs.existsSync(path.join(work, '.ratchet', 'rules', 'be-thoughtful-about-naming-things.yaml'))
+  );
+  cli(['rm', 'be-thoughtful-about-naming-things']);
+
+  const yesAdd = cli(['add', '--yes', 'write helpful commit messages']);
+  check(
+    '--yes saves a reminder without needing confirmation',
+    /saved/.test(yesAdd.out) &&
+      fs.existsSync(path.join(work, '.ratchet', 'rules', 'write-helpful-commit-messages.yaml'))
+  );
+  cli(['rm', 'write-helpful-commit-messages']);
+}
+
 const hookEvent = (tool, input, extra = {}) =>
   JSON.stringify({ session_id: 's', transcript_path: extra.transcript || '/nonexistent', cwd: work, hook_event_name: 'PreToolUse', tool_name: tool, tool_input: input });
 
