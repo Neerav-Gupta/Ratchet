@@ -138,6 +138,36 @@ function escapeRe(s) {
 
 const NEG = "(?:never|don'?t|do not|stop|no)";
 
+// "untill" appears verbatim in real corrections — match the typo too.
+const CONSENT_TRIGGER_RE = /\b(unless|untill?|till|without)\b/i;
+// Prefix-only (no trailing \b) so gerund/plural/past forms match too —
+// "asking"/"approved"/"tells" are far more natural than the bare verb.
+const CONSENT_ACTION_RE = /\b(say|ask|tell|approve|want)\w*/i;
+const CONSENT_PRONOUN_RE = /\b(i|me)\b/i;
+const CONSENT_WINDOW = 60;
+
+/**
+ * Statements like "never push unless I say so" or "never run npm without
+ * asking me first" carry a live escape hatch: if the user later says the
+ * trigger word in this session, the rule steps aside instead of hard-
+ * blocking forever. Word order varies ("unless I say" vs. "without asking
+ * me"), so this checks that a pronoun and a permission-action word both
+ * appear near the trigger, in either order, rather than requiring one
+ * fixed sequence.
+ */
+function hasConsentClause(statement) {
+  const s = statement.toLowerCase();
+  const trigger = CONSENT_TRIGGER_RE.exec(s);
+  if (!trigger) return false;
+  const window = s.slice(trigger.index, trigger.index + trigger[0].length + CONSENT_WINDOW);
+  return CONSENT_PRONOUN_RE.test(window) && CONSENT_ACTION_RE.test(window);
+}
+
+function consentBypass(statement, triggerWord) {
+  if (!hasConsentClause(statement)) return {};
+  return { unless_user_said: `\\b${escapeRe(triggerWord)}\\b` };
+}
+
 export function compile(statement) {
   const s = statement.trim();
   const base = {
@@ -150,17 +180,16 @@ export function compile(statement) {
   // "never git push [unless/until I say/ask/tell/approve]"
   let m = s.match(new RegExp(`${NEG}\\b[\\s\\S]{0,40}?\\b(?:git\\s+)?push\\b`, 'i'));
   if (m) {
-    // "untill" appears verbatim in real corrections — match the typo too.
-    const consent = /\b(unless|untill?|till)\b.{0,30}\b(i|me)\b.{0,20}\b(say|ask|tell|approve|want)/i.test(s);
+    const bypass = consentBypass(s, 'push');
     return {
-      id: slugify('no git push' + (consent ? ' without consent' : '')),
+      id: slugify('no git push' + (bypass.unless_user_said ? ' without consent' : '')),
       ...base,
       tier: 'deterministic',
       check: {
         type: 'command',
         tool: 'Bash',
         pattern: '\\bgit\\s+push\\b',
-        ...(consent ? { unless_user_said: '\\bpush\\b' } : {}),
+        ...bypass,
       },
     };
   }
@@ -184,14 +213,19 @@ export function compile(statement) {
     };
   }
 
-  // "never run <cmd>" / "don't use <cmd>" for a recognizable command word
+  // "never run <cmd> [unless/until I say/ask/tell/approve]" / "don't use <cmd>"
   m = s.match(new RegExp(`${NEG}\\s+(?:run|use|execute|call)\\s+\`?([a-z][a-z0-9_-]{1,30})\`?`, 'i'));
   if (m && !/^(the|a|an|any|it|this|that)$/i.test(m[1])) {
     return {
       id: slugify(`no ${m[1]} command`),
       ...base,
       tier: 'deterministic',
-      check: { type: 'command', tool: 'Bash', pattern: `(^|[\\s;&|])${escapeRe(m[1])}\\b` },
+      check: {
+        type: 'command',
+        tool: 'Bash',
+        pattern: `(^|[\\s;&|])${escapeRe(m[1])}\\b`,
+        ...consentBypass(s, m[1]),
+      },
     };
   }
 

@@ -62,6 +62,26 @@ check('glob does not overmatch', !globMatch('.env', 'src/env.ts'));
 
   const cmd = compile("don't run npm in this repo");
   check('compiles command ban', cmd.check?.type === 'command' && evaluateCmd(cmd, 'npm install').violated);
+
+  // Regression: "without asking me first" was silently dropped for the
+  // generic command-ban template — only the hardcoded git-push branch had
+  // a consent bypass, and even that only matched "unless/until", never
+  // "without", and never gerund forms ("asking" vs. bare "ask").
+  const npmConsent = compile('never run npm without asking me first');
+  check('command-ban template also detects a consent clause', npmConsent.check?.unless_user_said === '\\bnpm\\b');
+  check(
+    'consent bypass works with real transcript text',
+    !evaluate(
+      npmConsent,
+      { tool_name: 'Bash', tool_input: { command: 'npm install express' }, cwd: '/x' },
+      { userSaid: (p) => new RegExp(p, 'i').test('yes go ahead, npm install is fine') }
+    ).violated
+  );
+  const npmNoConsent = compile('never run npm without proper testing');
+  check(
+    'unrelated "without" clause does not falsely grant a bypass',
+    npmNoConsent.check?.unless_user_said === undefined
+  );
 }
 
 function evaluateCmd(rule, command) {

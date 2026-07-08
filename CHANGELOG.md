@@ -3,6 +3,15 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/); this project has not yet reached v1.0, so minor versions may include breaking changes to the rule schema.
 
+## [0.5.2] — 2026-07-08
+
+### Fixed
+Found by live dogfooding: taught a real project the rule "never run npm without asking me first" and it hard-blocked every npm command with no way to grant consent in-session, even after explicitly saying yes.
+- The consent-clause detector powering `unless_user_said` only recognized `unless`/`until`/`till` as trigger words — `without` (a very natural way to phrase this) wasn't one of them.
+- It also required an exact word match (`\bask\b`), so gerund/plural/past forms like "asking", "tells", "approved" never matched the bare verb.
+- It assumed a fixed word order (pronoun before action word, matching "unless I say"), but "without asking me" has the action word first — the reverse order silently failed to match.
+- The fix generalizes consent detection to any of the deterministic command templates (previously hardcoded to the git-push rule only), checking for a pronoun and a permission-action word near the trigger word in either order, rather than one fixed sequence.
+
 ## [0.5.1] — 2026-07-08
 
 ### Added
