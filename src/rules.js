@@ -86,11 +86,20 @@ function writtenContent(tool, input) {
   return '';
 }
 
+/**
+ * Resolve to a path relative to cwd, normalized to forward slashes — our
+ * globs (and the regex globMatch compiles) are written with '/' regardless
+ * of platform, but path.relative() returns '\'-separated paths on Windows.
+ */
 function relativize(file, cwd) {
   if (!file) return '';
-  if (!cwd || !path.isAbsolute(file)) return file;
+  if (!cwd || !path.isAbsolute(file)) return toPosix(file);
   const rel = path.relative(cwd, file);
-  return rel.startsWith('..') ? file : rel;
+  return toPosix(rel.startsWith('..') ? file : rel);
+}
+
+function toPosix(p) {
+  return p.split(path.sep).join('/');
 }
 
 function asList(v) {
