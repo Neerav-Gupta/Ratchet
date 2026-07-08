@@ -1,5 +1,9 @@
 # Ratchet 🔒
 
+[![CI](https://github.com/Neerav-Gupta/Ratchet/actions/workflows/ci.yml/badge.svg)](https://github.com/Neerav-Gupta/Ratchet/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/ratchet-cc)](https://www.npmjs.com/package/ratchet-cc)
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 **Every correction you give your coding agent becomes an enforced check it can never violate again.**
 
 You told Claude *"don't push to github until I say so."* It pushed anyway — four times over three weeks. You wrote it in CLAUDE.md. It pushed again. That's because CLAUDE.md is **advice**: prose the model reads and sometimes ignores.
