@@ -71,6 +71,25 @@ function isOurs(hook) {
   return hook.type === 'command' && /ratchet\.js["' ]+hook /.test(hook.command || '');
 }
 
+/** Write a git pre-commit hook that runs `ratchet check`. */
+export function installPreCommit(cwd = process.cwd()) {
+  const gitDir = path.join(cwd, '.git');
+  if (!fs.existsSync(gitDir)) throw new Error('not a git repository');
+  const hookFile = path.join(gitDir, 'hooks', 'pre-commit');
+  const script = `#!/bin/sh\n# installed by ratchet — https://github.com/Neerav-Gupta/Ratchet\nnode ${JSON.stringify(binPath())} check || exit 1\n`;
+
+  if (fs.existsSync(hookFile)) {
+    const existing = fs.readFileSync(hookFile, 'utf8');
+    if (existing.includes('ratchet')) return { file: hookFile, action: 'already installed' };
+    throw new Error(
+      `a pre-commit hook already exists — add this line to it manually:\n  node ${JSON.stringify(binPath())} check || exit 1`
+    );
+  }
+  fs.mkdirSync(path.dirname(hookFile), { recursive: true });
+  fs.writeFileSync(hookFile, script, { mode: 0o755 });
+  return { file: hookFile, action: 'installed' };
+}
+
 function addEntry(hooks, event, matcher, command) {
   hooks[event] = hooks[event] || [];
   const already = hooks[event].some((group) => (group.hooks || []).some(isOurs));

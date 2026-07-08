@@ -1,0 +1,15 @@
+id: no-manual-lockfile-edits
+statement: Never hand-edit lockfiles — only package managers may write them
+tier: deterministic
+mode: enforce
+created: 2026-07-07
+snooze_until: null
+check:
+  type: file_protect
+  paths:
+    - package-lock.json
+    - yarn.lock
+    - pnpm-lock.yaml
+    - Cargo.lock
+    - poetry.lock
+    - uv.lock

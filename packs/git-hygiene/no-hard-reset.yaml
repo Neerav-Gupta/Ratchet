@@ -1,0 +1,11 @@
+id: no-hard-reset
+statement: Never hard-reset or clean the working tree unless I explicitly ask — uncommitted work is unrecoverable
+tier: deterministic
+mode: enforce
+created: 2026-07-07
+snooze_until: null
+check:
+  type: command
+  tool: Bash
+  pattern: git\s+(reset\s+--hard|clean\s+-[a-z]*f|checkout\s+\.\s*$)
+  unless_user_said: (reset|clean|discard|revert)

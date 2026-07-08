@@ -1,0 +1,10 @@
+id: no-force-push
+statement: Never force-push — history rewrites destroy teammates' work
+tier: deterministic
+mode: enforce
+created: 2026-07-07
+snooze_until: null
+check:
+  type: command
+  tool: Bash
+  pattern: git\s+push\b[^\n]*(\s--force\b|\s-f\b|\s--force-with-lease\b)

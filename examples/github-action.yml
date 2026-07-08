@@ -1,0 +1,17 @@
+# Copy to .github/workflows/ratchet.yml — fails the build when committed
+# code violates your .ratchet/rules/ (content and file-protection rules).
+name: ratchet
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npx --yes ratchet-cc check

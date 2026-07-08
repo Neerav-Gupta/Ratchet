@@ -1,0 +1,11 @@
+id: no-unapproved-deps
+statement: Never install new dependencies unless I ask for them — every package is a supply-chain decision
+tier: deterministic
+mode: enforce
+created: 2026-07-07
+snooze_until: null
+check:
+  type: command
+  tool: Bash
+  pattern: (npm\s+(install|i|add)\s+[a-z@]|yarn\s+add\s+|pnpm\s+(add|install)\s+[a-z@]|pip3?\s+install\s+|cargo\s+add\s+|bun\s+add\s+)
+  unless_user_said: (install|add|dependency|package|library)

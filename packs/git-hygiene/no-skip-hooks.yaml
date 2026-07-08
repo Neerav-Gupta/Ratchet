@@ -1,0 +1,10 @@
+id: no-skip-hooks
+statement: Never bypass git hooks — --no-verify defeats the checks the team relies on
+tier: deterministic
+mode: enforce
+created: 2026-07-07
+snooze_until: null
+check:
+  type: command
+  tool: Bash
+  pattern: git\s+(commit|push)\b[^\n]*\s(--no-verify|-n)\b

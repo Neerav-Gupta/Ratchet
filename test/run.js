@@ -243,6 +243,138 @@ const hookEvent = (tool, input, extra = {}) =>
   fs.rmSync(initWork, { recursive: true, force: true });
 }
 
+// --- v0.2: semantic judge via Stop hook ---------------------------------------
+{
+  cli(['add', '--semantic', 'keep code comments minimal']);
+  const semFile = fs
+    .readdirSync(path.join(work, '.ratchet', 'rules'))
+    .find((f) => f.includes('comments'));
+  check('add --semantic creates a semantic rule', !!semFile &&
+    fs.readFileSync(path.join(work, '.ratchet', 'rules', semFile), 'utf8').includes('tier: semantic'));
+
+  // Fake judges via the RATCHET_JUDGE_CMD escape hatch.
+  const failJudge = path.join(work, 'judge-fail.sh');
+  fs.writeFileSync(
+    failJudge,
+    `#!/bin/sh\ncat > /dev/null\necho '{"violations":[{"rule_id":"keep-code-comments-minimal","reason":"every line is commented"}]}'\n`,
+    { mode: 0o755 }
+  );
+  const passJudge = path.join(work, 'judge-pass.sh');
+  fs.writeFileSync(passJudge, `#!/bin/sh\ncat > /dev/null\necho '{"violations":[]}'\n`, { mode: 0o755 });
+
+  // Need a dirty working tree for the judge to look at.
+  execSync('git add -A && git -c user.email=t@t -c user.name=t commit -qm base', { cwd: work });
+  fs.writeFileSync(path.join(work, 'dirty.ts'), '// c\nexport {}\n');
+  execSync('git add dirty.ts', { cwd: work });
+
+  const stopEvent = JSON.stringify({ session_id: 'sem1', cwd: work, stop_hook_active: false });
+  const blocked = execFileSync('node', [bin, 'hook', 'stop'], {
+    encoding: 'utf8', cwd: work, input: stopEvent,
+    env: { ...process.env, RATCHET_JUDGE_CMD: failJudge },
+  });
+  check('stop hook blocks on judged violation', /"decision":"block"/.test(blocked) && /every line is commented/.test(blocked));
+
+  const looped = execFileSync('node', [bin, 'hook', 'stop'], {
+    encoding: 'utf8', cwd: work, input: JSON.stringify({ session_id: 'sem1', cwd: work, stop_hook_active: true }),
+    env: { ...process.env, RATCHET_JUDGE_CMD: failJudge },
+  });
+  check('stop hook never blocks twice in a row (loop guard)', looped.trim() === '');
+
+  const passed = execFileSync('node', [bin, 'hook', 'stop'], {
+    encoding: 'utf8', cwd: work, input: stopEvent,
+    env: { ...process.env, RATCHET_JUDGE_CMD: passJudge },
+  });
+  check('stop hook passes clean verdict silently', passed.trim() === '');
+
+  const cached = execFileSync('node', [bin, 'hook', 'stop'], {
+    encoding: 'utf8', cwd: work, input: stopEvent,
+    env: { ...process.env, RATCHET_JUDGE_CMD: failJudge }, // would fail, but cache says pass
+  });
+  check('verdict cache skips re-judging an unchanged diff', cached.trim() === '');
+
+  const broken = execFileSync('node', [bin, 'hook', 'stop'], {
+    encoding: 'utf8', cwd: work,
+    input: JSON.stringify({ session_id: 'sem2', cwd: work, stop_hook_active: false }),
+    env: { ...process.env, RATCHET_JUDGE_CMD: '/nonexistent-judge' },
+  });
+  check('stop hook fails open when judge is missing', broken.trim() === '');
+  cli(['rm', semFile.replace('.yaml', '')]);
+}
+
+// --- v0.2: live capture + review ------------------------------------------------
+{
+  const prompt = JSON.stringify({ cwd: work, prompt: 'From now on stop adding semicolons everywhere' });
+  cli(['hook', 'user-prompt-submit'], { input: prompt });
+  cli(['hook', 'user-prompt-submit'], { input: prompt }); // duplicate must not double-log
+  const candFile = path.join(work, '.ratchet', 'candidates.jsonl');
+  check('correction prompt captured once', fs.existsSync(candFile) &&
+    fs.readFileSync(candFile, 'utf8').trim().split('\n').length === 1);
+
+  cli(['hook', 'user-prompt-submit'], { input: JSON.stringify({ cwd: work, prompt: 'what does this function do exactly?' }) });
+  check('non-correction prompt not captured',
+    fs.readFileSync(candFile, 'utf8').trim().split('\n').length === 1);
+
+  const before = fs.readdirSync(path.join(work, '.ratchet', 'rules')).length;
+  cli(['review', '--yes']);
+  const after = fs.readdirSync(path.join(work, '.ratchet', 'rules')).length;
+  check('review --yes converts candidates to rules', after === before + 1 && !fs.existsSync(candFile));
+}
+
+// --- v0.2: mode toggles -----------------------------------------------------------
+{
+  cli(['observe', 'no-git-push-without-consent']);
+  const r = cli(['hook', 'pre-tool-use'], { input: hookEvent('Bash', { command: 'git push' }) });
+  check('ratchet observe downgrades to logging', r.out.trim() === '');
+  cli(['enforce', 'no-git-push-without-consent']);
+  const r2 = cli(['hook', 'pre-tool-use'], { input: hookEvent('Bash', { command: 'git push' }) });
+  check('ratchet enforce restores blocking', /deny/.test(r2.out));
+}
+
+// --- v0.3: packs ---------------------------------------------------------------
+{
+  const list = cli(['pack', 'list']);
+  check('pack list shows bundled packs', /git-hygiene/.test(list.out) && /secrets/.test(list.out) && /deps/.test(list.out));
+  cli(['pack', 'add', 'git-hygiene']);
+  const force = cli(['hook', 'pre-tool-use'], { input: hookEvent('Bash', { command: 'git push --force origin main' }) });
+  check('pack rule blocks force-push', /no-force-push/.test(force.out));
+  const again = cli(['pack', 'add', 'git-hygiene']);
+  check('pack add is idempotent', /already present/.test(again.out));
+  const missing = cli(['pack', 'add', 'nonsense']);
+  check('unknown pack errors helpfully', missing.code === 1 && /available/.test(missing.out));
+}
+
+// --- v0.3: export ----------------------------------------------------------------
+{
+  cli(['export', 'CLAUDE.md']);
+  const md = fs.readFileSync(path.join(work, 'CLAUDE.md'), 'utf8');
+  check('export writes rules block with markers', /ratchet:rules:start/.test(md) && /no-force-push/.test(md));
+  fs.appendFileSync(path.join(work, 'CLAUDE.md'), '\nUser content below the block.\n');
+  cli(['export', 'CLAUDE.md']);
+  const md2 = fs.readFileSync(path.join(work, 'CLAUDE.md'), 'utf8');
+  check('export is idempotent and preserves user content',
+    md2.match(/ratchet:rules:start/g).length === 1 && /User content below/.test(md2));
+}
+
+// --- v0.3: doctor + pre-commit + check --json ---------------------------------------
+{
+  const d = cli(['doctor']);
+  check('doctor reports rule and hook status', /rule/.test(d.out) && /hooks/.test(d.out));
+
+  const pc = cli(['install', '--pre-commit']);
+  const hookFile = path.join(work, '.git', 'hooks', 'pre-commit');
+  check('pre-commit hook installed', /installed/.test(pc.out) && fs.existsSync(hookFile));
+
+  fs.writeFileSync(path.join(work, 'leak.ts'), 'const k = "AKIAABCDEFGHIJKLMNOP"\n');
+  execSync('git add leak.ts', { cwd: work });
+  cli(['pack', 'add', 'secrets']);
+  const j = cli(['check', '--json']);
+  const parsed = JSON.parse(j.out);
+  check('check --json reports violations machine-readably',
+    j.code === 1 && parsed.violations.some((v) => v.rule === 'no-hardcoded-keys' && v.file === 'leak.ts'));
+  fs.rmSync(path.join(work, 'leak.ts'));
+  execSync('git rm -q --cached leak.ts', { cwd: work });
+}
+
 fs.rmSync(work, { recursive: true, force: true });
 console.log(failures === 0 ? '\n  all tests passed\n' : `\n  ${failures} test(s) failed\n`);
 process.exit(failures === 0 ? 0 : 1);

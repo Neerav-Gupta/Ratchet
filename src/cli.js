@@ -5,7 +5,10 @@ import { compile } from './rules.js';
 import { mine } from './mine.js';
 import { check } from './check.js';
 import { runHook, candidatesPath } from './hooks/runtime.js';
-import { install, uninstall } from './hooks/install.js';
+import { install, uninstall, installPreCommit } from './hooks/install.js';
+import { listPacks, addPack } from './packs.js';
+import { exportRules } from './export.js';
+import { doctor } from './doctor.js';
 
 const BOLD = '\x1b[1m';
 const DIM = '\x1b[2m';
@@ -27,14 +30,21 @@ const HELP = `
   usage
     ratchet init [--yes]        mine your Claude Code history, propose rules
     ratchet add <statement>     teach a rule in plain language
+       --semantic               judge it with a model at Stop instead
+    ratchet review [--yes]      accept corrections captured live from sessions
     ratchet install             wire hooks into ./.claude/settings.json
+       --pre-commit             also run \`ratchet check\` before every commit
     ratchet uninstall           remove ratchet's hooks (rules stay)
     ratchet list                show rules and their status
     ratchet why <id>            show the evidence behind a rule
-    ratchet check               run content/path rules statically (CI, pre-commit)
+    ratchet enforce/observe <id>  set a rule's mode
+    ratchet check [--json]      run content/path rules statically (CI, pre-commit)
     ratchet stats               violations blocked, by rule
     ratchet snooze <id> [--hours n]   lift a rule temporarily (default 24h)
     ratchet rm <id>             delete a rule
+    ratchet pack [list|add <name>]    curated starter rule sets
+    ratchet export [file]       render rules into CLAUDE.md / AGENTS.md
+    ratchet doctor              verify the installation
 
   rules live in .ratchet/rules/*.yaml — commit them. They are the product.
 `;
@@ -72,9 +82,50 @@ export async function run(argv) {
     case 'observe':
       return cmdMode(positional[0], command);
     case 'install': {
+      if (flags['pre-commit']) {
+        const { file, action } = installPreCommit();
+        console.log(`  pre-commit hook ${action} → ${file}`);
+        return;
+      }
       const file = install();
       console.log(`  hooks installed → ${file}`);
-      console.log(c(DIM, '  PreToolUse (deterministic rules) + UserPromptSubmit (reminders)'));
+      console.log(
+        c(DIM, '  PreToolUse (blocks) + UserPromptSubmit (reminders, capture) + Stop (semantic judge)')
+      );
+      return;
+    }
+    case 'pack': {
+      const [sub, name] = positional;
+      if (sub === 'list' || !sub) {
+        for (const p of listPacks()) {
+          console.log(`  ${c(BOLD, p.name.padEnd(14))}${c(DIM, p.rules.map((r) => r.id).join(', '))}`);
+        }
+        console.log(c(DIM, '\n  ratchet pack add <name>'));
+        return;
+      }
+      if (sub === 'add') {
+        if (!name) throw new Error('usage: ratchet pack add <name>');
+        const { added, skipped } = addPack(name);
+        for (const id of added) console.log(`  ${c(GREEN, '✓')} ${id}`);
+        for (const id of skipped) console.log(c(DIM, `  – ${id} (already present)`));
+        if (added.length > 0) console.log(`\n  review with ${c(BOLD, 'ratchet list')} — these are your files now.`);
+        return;
+      }
+      throw new Error('usage: ratchet pack [list|add <name>]');
+    }
+    case 'export': {
+      const file = exportRules(flags.file || positional[0] || 'CLAUDE.md');
+      console.log(`  rules exported → ${file}`);
+      console.log(c(DIM, '  re-run after changing rules; the block updates in place.'));
+      return;
+    }
+    case 'doctor': {
+      let bad = 0;
+      for (const r of doctor()) {
+        console.log(`  ${r.ok ? c(GREEN, '✓') : c(RED, '✗')} ${r.name}${r.detail ? c(DIM, ` — ${r.detail}`) : ''}`);
+        if (!r.ok) bad++;
+      }
+      process.exitCode = bad > 0 ? 1 : 0;
       return;
     }
     case 'uninstall': {
@@ -87,7 +138,7 @@ export async function run(argv) {
     case 'why':
       return cmdWhy(positional[0]);
     case 'check':
-      return cmdCheck();
+      return cmdCheck(flags);
     case 'stats':
       return cmdStats();
     case 'snooze':
@@ -268,8 +319,13 @@ function cmdWhy(id) {
   console.log(`\n  ${blocks.length} violation${blocks.length === 1 ? '' : 's'} caught so far.\n`);
 }
 
-function cmdCheck() {
+function cmdCheck(flags = {}) {
   const { violations, checked, skipped } = check();
+  if (flags.json) {
+    console.log(JSON.stringify({ violations, checked, skipped }, null, 2));
+    process.exitCode = violations.length > 0 ? 1 : 0;
+    return;
+  }
   if (skipped > 0) {
     console.log(c(DIM, `  ${skipped} command rule${skipped === 1 ? '' : 's'} are runtime-only (skipped here)`));
   }
@@ -356,7 +412,7 @@ function parseArgs(argv) {
     if (a === '--version' || a === '-v') return { command: 'version', positional, flags };
     if (a.startsWith('--')) {
       const key = a.slice(2);
-      if (['yes', 'json'].includes(key)) flags[key] = true;
+      if (['yes', 'json', 'semantic', 'pre-commit'].includes(key)) flags[key] = true;
       else {
         const val = argv[++i];
         if (val === undefined) throw new Error(`--${key} needs a value`);
