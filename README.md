@@ -54,9 +54,10 @@ ratchet add 'never use `console.log` in *.ts files'
 | `command` | git push ban, with `unless_user_said` consent scan of the live session transcript | PreToolUse hook |
 | `file_protect` | `.env`, `prod/**` — no tool may write them | PreToolUse hook |
 | `content` | banned patterns in written code, scoped by glob | PreToolUse hook + `ratchet check` |
-| `reminder` | anything not deterministically checkable — injected as context only when the prompt is relevant | UserPromptSubmit hook |
+| `semantic` | "keep comments minimal" — a model judges the session's diff at Stop and **blocks "done"** until satisfied | Stop hook |
+| `reminder` | anything else — injected as context only when the prompt is relevant | UserPromptSubmit hook |
 
-Ratchet is honest about the boundary: what it can't check deterministically becomes a *targeted* reminder, not a fake guarantee.
+The semantic judge runs through your own `claude` CLI (haiku by default, `RATCHET_JUDGE_MODEL` to change), only when the working tree actually changed, with a per-session verdict cache and a loop guard — it can nudge the agent back to work, never trap it. Everything else is honest about the boundary: what can't be checked becomes a *targeted* reminder, not a fake guarantee.
 
 **3. Enforce — in three places.** The same rule blocks the agent mid-session (hooks), your commits (`ratchet check` in pre-commit), and your team's PRs (`ratchet check` in CI, exits 1 on violations).
 
@@ -79,19 +80,41 @@ evidence:
 
 Your agent memory shouldn't live in a vendor's database. It should live in your repo, where it survives model upgrades, tool switches, and teammates joining.
 
+**Or don't wait for history — capture live.** When you type a correction mid-session ("From now on stop adding semicolons everywhere"), ratchet notices and queues it. Later:
+
+```sh
+ratchet review      # each captured correction → y/n → rule
+```
+
+**Start from a pack.** Curated rules you'd want anyway:
+
+```sh
+ratchet pack add git-hygiene   # no force-push, no --no-verify, no hard-reset without consent
+ratchet pack add secrets       # protect .env/keys, block hardcoded credentials
+ratchet pack add deps          # no unapproved installs, no hand-edited lockfiles
+```
+
+Pack rules are copied into *your* `.ratchet/rules/` — edit or delete them like anything else.
+
 ## Commands
 
 ```
-ratchet init [--yes]      mine history, propose rules with evidence
-ratchet add <statement>   teach a rule in plain language
-ratchet install/uninstall wire/remove hooks in .claude/settings.json
-ratchet list              rules and status
-ratchet why <id>          the conversations that created a rule
-ratchet check             static enforcement for pre-commit / CI
-ratchet stats             violations caught, per rule
-ratchet snooze <id>       lift a rule temporarily (default 24h)
-ratchet rm <id>           delete a rule
+ratchet init [--yes]         mine history, propose rules with evidence
+ratchet add <statement>      teach a rule in plain language (--semantic for judged rules)
+ratchet review [--yes]       accept corrections captured live from sessions
+ratchet install/uninstall    wire/remove hooks in .claude/settings.json
+   install --pre-commit      also run `ratchet check` before every commit
+ratchet list / why <id>      rules, status, and the conversations behind them
+ratchet enforce/observe <id> set a rule's teeth
+ratchet check [--json]       static enforcement for pre-commit / CI
+ratchet stats                violations caught, per rule (+ escalation hints)
+ratchet snooze <id>          lift a rule temporarily (default 24h)
+ratchet pack list|add <name> curated starter rule sets
+ratchet export [file]        render the rulebook into CLAUDE.md / AGENTS.md
+ratchet doctor               verify the installation
 ```
+
+CI: copy [examples/github-action.yml](examples/github-action.yml) into `.github/workflows/` and violations fail the build.
 
 ## Design principles
 
@@ -101,10 +124,12 @@ ratchet rm <id>           delete a rule
 
 ## Roadmap
 
-- [ ] `Stop`-hook semantic tier: LLM-judged rules ("keep comments minimal") that block "done" until satisfied
-- [ ] Live capture: detect a correction the moment you type it, propose the rule in-session
+- [x] Semantic tier: LLM-judged rules that block "done" until satisfied
+- [x] Live capture: corrections noticed as you type, promoted via `ratchet review`
+- [x] Rule packs, CLAUDE.md/AGENTS.md export, pre-commit + CI enforcement
 - [ ] Cursor / Codex hook adapters — same rules, every agent
-- [ ] Rule packs: shareable starter sets (git hygiene, secrets, dependency discipline)
+- [ ] Claude Code plugin packaging (`/plugin install ratchet`)
+- [ ] Community pack registry
 
 ## License
 
