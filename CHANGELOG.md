@@ -3,6 +3,15 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/); this project has not yet reached v1.0, so minor versions may include breaking changes to the rule schema.
 
+## [0.5.4] — 2026-07-08
+
+### Fixed
+Found immediately after 0.5.3 shipped, from `ratchet add "never run an npm command without my approval"` compiling to an unenforceable reminder:
+- The command-ban capture regex grabbed the word right after "run"/"use"/etc. as the command name — but a natural article ("run **an** npm command") sat in that position instead, so it captured "an" (rejected as a stopword) and fell through to the reminder tier. An optional `a`/`an`/`the` is now skipped before capturing.
+- The consent-clause detector's pronoun list only recognized "i"/"me" — "my" (as in "without **my** approval") is a distinct word, not a suffix of "me", and needed its own entry.
+- Its action-word list only matched verb forms ("approve") — "approval" (the noun form) doesn't share a matchable prefix with the full word "approve". Action words are now matched as truncated stems ("approv") so `\w*` completes both inflections and noun forms.
+- Added "permission"/"consent"/"go ahead" as standalone strong consent nouns — "without permission" is unambiguous about needing consent on its own, without also requiring a nearby pronoun the way weaker verbs like "want" do.
+
 ## [0.5.3] — 2026-07-08
 
 ### Fixed

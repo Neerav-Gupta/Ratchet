@@ -140,10 +140,17 @@ const NEG = "(?:never|don'?t|do not|stop|no)";
 
 // "untill" appears verbatim in real corrections — match the typo too.
 const CONSENT_TRIGGER_RE = /\b(unless|untill?|till|without)\b/i;
-// Prefix-only (no trailing \b) so gerund/plural/past forms match too —
-// "asking"/"approved"/"tells" are far more natural than the bare verb.
-const CONSENT_ACTION_RE = /\b(say|ask|tell|approve|want)\w*/i;
-const CONSENT_PRONOUN_RE = /\b(i|me)\b/i;
+// Truncated stems (not full verbs) so \w* completes both inflections and
+// noun forms — "approv" + \w* covers "approve/approving/approved" AND
+// "approval", which a full-verb-only pattern would miss.
+const CONSENT_ACTION_RE = /\b(say|ask|tell|approv|confirm|want)\w*/i;
+// "without MY approval" is as common as "without asking ME" — "my" is a
+// distinct word from "me", not a suffix of it, so it needs its own entry.
+const CONSENT_PRONOUN_RE = /\b(i|me|my)\b/i;
+// These nouns are unambiguous about consent on their own ("without
+// permission", "without your go-ahead") — don't also require a pronoun,
+// unlike weaker/more ambiguous verbs like "want".
+const CONSENT_STRONG_NOUN_RE = /\b(permission|consent|go\s*ahead)\b/i;
 const CONSENT_WINDOW = 60;
 
 /**
@@ -153,13 +160,15 @@ const CONSENT_WINDOW = 60;
  * blocking forever. Word order varies ("unless I say" vs. "without asking
  * me"), so this checks that a pronoun and a permission-action word both
  * appear near the trigger, in either order, rather than requiring one
- * fixed sequence.
+ * fixed sequence — or, for an unambiguous noun like "permission", that
+ * alone is enough.
  */
 function hasConsentClause(statement) {
   const s = statement.toLowerCase();
   const trigger = CONSENT_TRIGGER_RE.exec(s);
   if (!trigger) return false;
   const window = s.slice(trigger.index, trigger.index + trigger[0].length + CONSENT_WINDOW);
+  if (CONSENT_STRONG_NOUN_RE.test(window)) return true;
   return CONSENT_PRONOUN_RE.test(window) && CONSENT_ACTION_RE.test(window);
 }
 
@@ -214,7 +223,11 @@ export function compile(statement) {
   }
 
   // "never run <cmd> [unless/until I say/ask/tell/approve]" / "don't use <cmd>"
-  m = s.match(new RegExp(`${NEG}\\s+(?:run|use|execute|call)\\s+\`?([a-z][a-z0-9_-]{1,30})\`?`, 'i'));
+  // An optional article ("run an npm command") is skipped so it doesn't get
+  // captured in place of the actual command name.
+  m = s.match(
+    new RegExp(`${NEG}\\s+(?:run|use|execute|call)\\s+(?:(?:an?|the)\\s+)?\`?([a-z][a-z0-9_-]{1,30})\`?`, 'i')
+  );
   if (m && !/^(the|a|an|any|it|this|that)$/i.test(m[1])) {
     return {
       id: slugify(`no ${m[1]} command`),

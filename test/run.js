@@ -82,6 +82,24 @@ check('glob does not overmatch', !globMatch('.env', 'src/env.ts'));
     'unrelated "without" clause does not falsely grant a bypass',
     npmNoConsent.check?.unless_user_said === undefined
   );
+
+  // Regression: "run an npm command" — an article between the verb and the
+  // command name captured "an" instead of "npm", producing an unenforceable
+  // reminder. Also covers "without my approval": "my" (not "me") and
+  // "approval" (a noun form of "approve") weren't recognized as consent
+  // language at all.
+  const article = compile('never run an npm command without my approval');
+  check(
+    'skips the article so the real command name is captured',
+    article.tier === 'deterministic' && article.check?.pattern.includes('npm')
+  );
+  check('"my approval" is recognized as a consent clause', article.check?.unless_user_said === '\\bnpm\\b');
+
+  const strongNoun = compile('never run npm without permission');
+  check(
+    '"permission" alone (no pronoun) is enough to grant a bypass',
+    strongNoun.check?.unless_user_said === '\\bnpm\\b'
+  );
 }
 
 function evaluateCmd(rule, command) {
