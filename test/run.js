@@ -9,7 +9,7 @@ import { parse, stringify } from '../src/yaml.js';
 import { compile, evaluate, globMatch } from '../src/rules.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const bin = path.join(__dirname, '..', 'bin', 'ratchet.js');
+const bin = path.join(__dirname, '..', 'bin', 'ratchet');
 
 let failures = 0;
 const check = (name, cond) => {
@@ -197,13 +197,13 @@ const hookEvent = (tool, input, extra = {}) =>
 {
   cli(['install']);
   const settings = JSON.parse(fs.readFileSync(path.join(work, '.claude', 'settings.json'), 'utf8'));
-  check('install writes PreToolUse hook', JSON.stringify(settings.hooks.PreToolUse).includes('ratchet.js'));
+  check('install writes PreToolUse hook', JSON.stringify(settings.hooks.PreToolUse).includes('ratchet'));
   check('install writes UserPromptSubmit hook', !!settings.hooks.UserPromptSubmit);
   cli(['install']);
   check('install is idempotent', settings.hooks.PreToolUse.length === JSON.parse(fs.readFileSync(path.join(work, '.claude', 'settings.json'), 'utf8')).hooks.PreToolUse.length);
   cli(['uninstall']);
   const after = JSON.parse(fs.readFileSync(path.join(work, '.claude', 'settings.json'), 'utf8'));
-  check('uninstall removes our hooks', !JSON.stringify(after).includes('ratchet.js'));
+  check('uninstall removes our hooks', !JSON.stringify(after).includes('ratchet'));
 }
 
 // --- init mining end-to-end ------------------------------------------------------

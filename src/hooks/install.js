@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 const MATCHER = 'Bash|Edit|Write|MultiEdit|NotebookEdit';
 
 function binPath() {
-  return fileURLToPath(new URL('../../bin/ratchet.js', import.meta.url));
+  return fileURLToPath(new URL('../../bin/ratchet', import.meta.url));
 }
 
 function hookCommand(event) {
@@ -68,7 +68,7 @@ export function uninstall(cwd = process.cwd()) {
 }
 
 function isOurs(hook) {
-  return hook.type === 'command' && /ratchet\.js["' ]+hook /.test(hook.command || '');
+  return hook.type === 'command' && /ratchet["' ]+hook /.test(hook.command || '');
 }
 
 /** Write a git pre-commit hook that runs `ratchet check`. */

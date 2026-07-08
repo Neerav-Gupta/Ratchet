@@ -1,0 +1,15 @@
+{
+  "name": "ratchet",
+  "owner": {
+    "name": "Neerav Gupta",
+    "url": "https://github.com/Neerav-Gupta"
+  },
+  "description": "Marketplace for Ratchet — corrections compiled into enforced agent guardrails.",
+  "plugins": [
+    {
+      "name": "ratchet",
+      "source": "./",
+      "description": "Every correction you give your agent becomes an enforced check it can never violate again."
+    }
+  ]
+}

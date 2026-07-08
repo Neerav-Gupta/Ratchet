@@ -1,3 +1,4 @@
 node_modules/
 .ratchet/log.jsonl
 .dejavu/
+.DS_Store

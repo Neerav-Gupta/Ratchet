@@ -28,6 +28,15 @@ But the moment *you* say "push it" in the session, the same rule steps aside. Co
 
 ## Install
 
+**As a Claude Code plugin** (recommended — the hooks wire themselves up, and `ratchet` becomes a bare command Claude can call directly):
+
+```
+/plugin marketplace add Neerav-Gupta/Ratchet
+/plugin install ratchet@ratchet
+```
+
+**Or as a standalone CLI**, if you want it outside Claude Code too (CI, pre-commit, other agents):
+
 ```sh
 npm i -g ratchet-cc
 cd your-project

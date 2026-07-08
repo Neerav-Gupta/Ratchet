@@ -31,7 +31,7 @@ export function doctor(cwd = process.cwd()) {
   }
 
   const settings = settingsPath(cwd);
-  if (fs.existsSync(settings) && fs.readFileSync(settings, 'utf8').includes('ratchet.js')) {
+  if (fs.existsSync(settings) && fs.readFileSync(settings, 'utf8').includes('ratchet')) {
     const events = ['PreToolUse', 'UserPromptSubmit', 'Stop'].filter((e) =>
       fs.readFileSync(settings, 'utf8').includes(`"${e}"`)
     );

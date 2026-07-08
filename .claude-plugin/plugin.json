@@ -1,0 +1,15 @@
+{
+  "name": "ratchet",
+  "displayName": "Ratchet",
+  "version": "0.3.0",
+  "description": "Every correction you give your agent becomes an enforced check it can never violate again. CLAUDE.md is advice; Ratchet is law.",
+  "author": {
+    "name": "Neerav Gupta",
+    "url": "https://github.com/Neerav-Gupta"
+  },
+  "homepage": "https://github.com/Neerav-Gupta/Ratchet#readme",
+  "repository": "https://github.com/Neerav-Gupta/Ratchet",
+  "license": "MIT",
+  "keywords": ["hooks", "guardrails", "enforcement", "corrections", "memory", "lint"],
+  "hooks": "./hooks/hooks.json"
+}

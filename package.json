@@ -4,13 +4,15 @@
   "description": "Every correction you give your coding agent becomes an enforced check it can never violate again. CLAUDE.md is advice; Ratchet is law.",
   "type": "module",
   "bin": {
-    "ratchet": "bin/ratchet.js"
+    "ratchet": "bin/ratchet"
   },
   "files": [
     "bin",
     "src",
     "packs",
     "examples",
+    "hooks",
+    ".claude-plugin",
     "README.md",
     "LICENSE"
   ],
