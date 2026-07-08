@@ -3,6 +3,14 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/); this project has not yet reached v1.0, so minor versions may include breaking changes to the rule schema.
 
+## [0.5.1] — 2026-07-08
+
+### Added
+- `README.npm.md`: a separate, npm-registry-facing readme (no relative links, no raw GitHub Actions badge SVG — npmjs.com's markdown sanitizer doesn't allowlist that host) automatically swapped in for `README.md` on `npm pack`/`npm publish` via new `prepack`/`postpack` scripts, then restored from git afterward.
+
+### Removed
+- README's Roadmap checklist — duplicated CHANGELOG.md and was almost entirely checked off.
+
 ## [0.5.0] — 2026-07-08
 
 ### Added
