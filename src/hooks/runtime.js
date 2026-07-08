@@ -69,14 +69,16 @@ function preToolUse(rawEvent, cwd) {
     if (userMessages === null) {
       userMessages = readUserMessages(event.transcript_path);
     }
-    const re = safeRegex(pattern);
-    // Explicit restatement of the trigger word, anywhere this session.
-    if (userMessages.some((m) => re.test(m))) return true;
-    // Otherwise, a bare "yes"/"go ahead"/"1" — but only if it's the very
-    // last thing the user said, so it reads as a direct reply to the block
-    // that just happened rather than an unrelated earlier affirmative.
+    // Consent is per-action, not a session-wide unlock: only the single
+    // most recent user message counts. Scanning the whole transcript would
+    // mean saying "npm" once, for any reason, silently authorizes every
+    // future npm command for the rest of the session — the opposite of
+    // what "ask me before you run npm" means. This must read as a direct
+    // reply to the specific block that just happened.
     const last = userMessages[userMessages.length - 1];
-    return last !== undefined && isBareAffirmative(last);
+    if (last === undefined) return false;
+    if (safeRegex(pattern).test(last)) return true;
+    return isBareAffirmative(last);
   };
 
   for (const rule of rules) {

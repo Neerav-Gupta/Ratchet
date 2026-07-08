@@ -250,6 +250,30 @@ const hookEvent = (tool, input, extra = {}) =>
   });
   check('AskUserQuestion "Yes, run it" answer lifts the block', askUserQuestion.out.trim() === '');
 
+  // Regression: real-world report — consent given once early in a session
+  // silently authorized every later, unrelated attempt of the same command
+  // for the rest of the session, because the exact-trigger-word check
+  // scanned the WHOLE transcript with no recency scoping (unlike the
+  // bare-affirmative check, which already only looked at the last
+  // message). "Ask me before you run npm" means every time, not once ever.
+  const sessionWideTranscript = (() => {
+    const p = path.join(work, `session-wide-${Date.now()}.jsonl`);
+    fs.writeFileSync(
+      p,
+      [
+        JSON.stringify({ type: 'user', uuid: crypto.randomUUID(), message: { role: 'user', content: [{ type: 'text', text: 'please push, go ahead and push it now' }] } }),
+        JSON.stringify({ type: 'user', uuid: crypto.randomUUID(), message: { role: 'user', content: [{ type: 'text', text: 'looks great, thanks' }] } }),
+        JSON.stringify({ type: 'user', uuid: crypto.randomUUID(), message: { role: 'user', content: [{ type: 'text', text: 'can you also update the README' }] } }),
+      ].join('\n')
+    );
+    return p;
+  })();
+  const sessionWide = cli(['hook', 'pre-tool-use'], { input: hookEvent('Bash', { command: 'git push' }, { transcript: sessionWideTranscript }) });
+  check(
+    'consent does not carry forward to a later, unrelated attempt (per-invocation, not session-wide)',
+    /deny/.test(sessionWide.out)
+  );
+
   const env = cli(['hook', 'pre-tool-use'], { input: hookEvent('Edit', { file_path: path.join(work, '.env') }) });
   check('hook denies protected file edit', /deny/.test(env.out));
 
