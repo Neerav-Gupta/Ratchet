@@ -53,10 +53,204 @@ const HELP = `
     ratchet doctor              verify the installation
 
   rules live in .ratchet/rules/*.yaml — commit them. They are the product.
+
+  run \`ratchet <command> --help\` for details on any command above.
 `;
+
+const COMMAND_HELP = {
+  init: `
+  ratchet init [--yes] [--agent claude|cursor|codex|all] [--dir <path>]
+
+  Mine your local agent transcripts for repeated instructions and
+  corrections, and propose rules with evidence attached. Reads:
+    ~/.claude/projects                      (Claude Code)
+    ~/.cursor/projects/*/agent-transcripts   (Cursor)
+    ~/.codex/sessions                       (Codex)
+
+  options
+    --yes             accept every proposal without prompting
+    --agent <name>    only mine one agent's transcripts (default: all)
+    --dir <path>      scan a specific directory instead of the default
+
+  example
+    ratchet init --agent claude --yes
+`,
+  add: `
+  ratchet add <statement> [--semantic]
+
+  Teach a rule in plain language. Compiles to the strongest enforceable
+  form it can: a command/file/content check blocked at PreToolUse, or
+  an honest reminder if nothing deterministic applies.
+
+  A consent clause in the statement ("without asking me", "unless I
+  say so", "without my permission") makes the rule liftable — say the
+  trigger word, or a bare "yes"/"go ahead" in reply to a prompt, and it
+  steps aside for that session. Without one, the rule is unconditional.
+
+  options
+    --semantic    skip the compiler; judge this rule with a model at
+                  the Stop hook instead (for rules that can't be
+                  reduced to a regex, e.g. "keep comments minimal")
+
+  examples
+    ratchet add "never push to github unless I tell you to"
+    ratchet add "never edit the .env file"
+    ratchet add 'never use \`console.log\` in *.ts files'
+    ratchet add --semantic "keep pull requests small and focused"
+`,
+  review: `
+  ratchet review [--yes]
+
+  Prompts that read like corrections are captured live during sessions
+  into .ratchet/candidates.jsonl (never interrupting you). This walks
+  that queue and offers each one as a rule.
+
+  options
+    --yes    accept every captured correction without prompting
+
+  example
+    ratchet review
+`,
+  install: `
+  ratchet install [--claude] [--cursor] [--codex] [--pre-commit]
+
+  Wire ratchet's hooks into agent configs so rules are enforced live.
+  With no flag, installs for Claude Code, Cursor, and Codex at once.
+
+  options
+    --claude       only .claude/settings.json
+    --cursor       only .cursor/hooks.json
+    --codex        only .codex/config.toml
+    --pre-commit   also add a git pre-commit hook running \`ratchet check\`
+
+  Safe to re-run — existing hooks are preserved, ratchet's entries are
+  only added once. Pass at most one of --claude/--cursor/--codex.
+`,
+  uninstall: `
+  ratchet uninstall [--claude] [--cursor] [--codex]
+
+  Remove ratchet's hooks from agent configs. Rules in .ratchet/rules/
+  are untouched — this only stops live enforcement, same flags as
+  \`ratchet install\` for scoping to one agent.
+`,
+  list: `
+  ratchet list
+
+  Show every rule and its current status: enforced, observe (logs but
+  doesn't block), semantic, reminder, or snoozed.
+`,
+  why: `
+  ratchet why <id>
+
+  Show a rule's full definition, the check it compiles to, the
+  original conversation(s) that taught it (if mined or captured live),
+  and how many violations it's caught so far.
+
+  example
+    ratchet why no-git-push-without-consent
+`,
+  enforce: `
+  ratchet enforce <id>
+
+  Set a rule to enforce mode — violations are blocked, not just logged.
+  Clears any active snooze. Opposite of \`ratchet observe\`.
+`,
+  observe: `
+  ratchet observe <id>
+
+  Set a rule to observe mode — violations are logged (visible in
+  \`ratchet stats\`) but not blocked. Use this to try a new rule before
+  trusting it to enforce. Clears any active snooze.
+`,
+  check: `
+  ratchet check [--json]
+
+  Statically re-run content and file-protection rules against tracked
+  and staged files — the same rules the live hooks enforce, but usable
+  in pre-commit hooks or CI where there's no running agent session to
+  intercept. Command-type rules are runtime-only and are skipped here.
+
+  options
+    --json    machine-readable output; exit code is still 1 on violations
+
+  example
+    ratchet check --json
+`,
+  stats: `
+  ratchet stats
+
+  Show every violation ratchet has caught, grouped by rule. Suggests
+  promoting an observe-mode rule to enforce once it's fired 3+ times
+  without ever being escalated.
+`,
+  snooze: `
+  ratchet snooze <id> [--hours n]
+
+  Temporarily lift a rule — it stops blocking until the snooze expires,
+  then resumes automatically. Default is 24 hours.
+
+  example
+    ratchet snooze no-npm-command --hours 2
+`,
+  rm: `
+  ratchet rm <id>
+
+  Delete a rule. Reversible with \`ratchet undo\` immediately after.
+`,
+  undo: `
+  ratchet undo
+
+  Revert the most recent rule change: an add, a delete, or a mode/
+  snooze change. Call it repeatedly to walk further back — it's a
+  LIFO stack, one step per call.
+`,
+  pack: `
+  ratchet pack [list|add <name>]
+
+  Curated starter rule sets you'd probably want anyway. \`pack add\`
+  copies the pack's rules into your own .ratchet/rules/ — they're your
+  files after that, edit or delete them like anything else.
+
+  packs
+    git-hygiene   no force-push, no --no-verify, no hard-reset without consent
+    secrets       protect .env/keys, block hardcoded credentials
+    deps          no unapproved installs, no hand-edited lockfiles
+
+  examples
+    ratchet pack list
+    ratchet pack add git-hygiene
+`,
+  export: `
+  ratchet export [file]
+
+  Render all active rules into CLAUDE.md (or another file) between
+  auto-managed markers, as a human-readable mirror of what's enforced.
+  This does NOT enforce anything by itself — it's documentation, for
+  agents without hook support or for anyone browsing the repo.
+
+  Idempotent: re-run after changing rules and the block updates in
+  place, without disturbing surrounding content.
+
+  example
+    ratchet export AGENTS.md
+`,
+  doctor: `
+  ratchet doctor
+
+  Sanity-check the installation: Node version, whether rules parse
+  cleanly, whether hooks are wired in for each agent, whether a
+  semantic-judge binary is available if any semantic rules exist, and
+  whether .gitignore covers ratchet's local-only state.
+`,
+};
 
 export async function run(argv) {
   const { command, positional, flags } = parseArgs(argv);
+
+  if (flags.help && COMMAND_HELP[command]) {
+    console.log(COMMAND_HELP[command]);
+    return;
+  }
 
   switch (command) {
     case 'help':
@@ -445,11 +639,17 @@ function parseArgs(argv) {
   let command = null;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--help' || a === '-h') return { command: 'help', positional, flags };
+    // Don't short-circuit here — a command may already be captured (e.g.
+    // `ratchet add --help`), and it should get that command's specific
+    // help, not just the generic overview.
+    if (a === '--help' || a === '-h') {
+      flags.help = true;
+      continue;
+    }
     if (a === '--version' || a === '-v') return { command: 'version', positional, flags };
     if (a.startsWith('--')) {
       const key = a.slice(2);
-      if (['yes', 'json', 'semantic', 'pre-commit', 'claude', 'cursor', 'codex'].includes(key)) flags[key] = true;
+      if (['yes', 'json', 'semantic', 'pre-commit', 'claude', 'cursor', 'codex', 'help'].includes(key)) flags[key] = true;
       else {
         const val = argv[++i];
         if (val === undefined) throw new Error(`--${key} needs a value`);

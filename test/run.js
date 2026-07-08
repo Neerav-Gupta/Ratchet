@@ -656,7 +656,10 @@ const hookEvent = (tool, input, extra = {}) =>
   const hookFile = path.join(work, '.git', 'hooks', 'pre-commit');
   check('pre-commit hook installed', /installed/.test(pc.out) && fs.existsSync(hookFile));
 
-  fs.writeFileSync(path.join(work, 'leak.ts'), 'const k = "AKIAABCDEFGHIJKLMNOP"\n');
+  // AWS's own documented placeholder key (appears throughout their SDK docs
+  // specifically as a non-secret example) — matches the AKIA pattern just as
+  // well for this test, without looking like a real credential to scanners.
+  fs.writeFileSync(path.join(work, 'leak.ts'), 'const k = "AKIAIOSFODNN7EXAMPLE"\n');
   execSync('git add leak.ts', { cwd: work });
   cli(['pack', 'add', 'secrets']);
   const j = cli(['check', '--json']);
@@ -665,6 +668,23 @@ const hookEvent = (tool, input, extra = {}) =>
     j.code === 1 && parsed.violations.some((v) => v.rule === 'no-hardcoded-keys' && v.file === 'leak.ts'));
   fs.rmSync(path.join(work, 'leak.ts'));
   execSync('git rm -q --cached leak.ts', { cwd: work });
+}
+
+// --- per-command help ---------------------------------------------------------
+{
+  const addHelp = cli(['add', '--help']);
+  check('ratchet add --help shows add-specific help, not the global overview', /ratchet add <statement>/.test(addHelp.out));
+  const whyHelpShort = cli(['why', '-h']);
+  check('-h works as a per-command help alias', /ratchet why <id>/.test(whyHelpShort.out));
+  const whyHelpNoId = cli(['why', '--help']);
+  check(
+    '--help takes priority over missing-argument validation',
+    whyHelpNoId.code === 0 && /ratchet why <id>/.test(whyHelpNoId.out)
+  );
+  const globalHelp = cli(['--help']);
+  check('bare --help (no command) still shows the global overview', /every correction becomes an enforced check/.test(globalHelp.out));
+  const unknownHelp = cli(['nonsense-command', '--help']);
+  check('--help on an unknown command still errors', unknownHelp.code === 1 && /unknown command/.test(unknownHelp.out));
 }
 
 fs.rmSync(work, { recursive: true, force: true });

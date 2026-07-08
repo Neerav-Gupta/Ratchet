@@ -3,6 +3,14 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/); this project has not yet reached v1.0, so minor versions may include breaking changes to the rule schema.
 
+## [0.5.6] — 2026-07-08
+
+### Added
+- Per-command help: `ratchet <command> --help` (or `-h`) now shows that command's own usage, options, and examples, instead of just the generic overview. Takes priority over argument validation, so it works even when a required argument is missing.
+
+### Fixed
+- An automated secret scanner flagged an AWS-key-shaped string in `test/run.js` as an exposed credential. It was always test fixture data — used to verify the bundled `no-hardcoded-keys` pack rule detects this exact pattern, written to a throwaway file and deleted within the same test run, never a real credential. Swapped it for AWS's own documented placeholder key (`AKIAIOSFODNN7EXAMPLE`, used throughout their SDK docs specifically as a non-secret example), which scanners are already tuned to ignore.
+
 ## [0.5.5] — 2026-07-08
 
 ### Fixed

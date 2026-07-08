@@ -132,6 +132,8 @@ ratchet export [file]        render the rulebook into CLAUDE.md / AGENTS.md
 ratchet doctor               verify the installation
 ```
 
+Every command above has its own detailed help: `ratchet <command> --help` (or `-h`).
+
 Made a rule too aggressive, or deleted the wrong one? `ratchet undo` reverses the last change — it's the safety valve for a tool whose entire job is enforcement.
 
 CI: copy [examples/github-action.yml](examples/github-action.yml) into `.github/workflows/` and violations fail the build.
