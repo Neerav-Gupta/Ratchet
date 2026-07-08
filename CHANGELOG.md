@@ -3,6 +3,13 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/); this project has not yet reached v1.0, so minor versions may include breaking changes to the rule schema.
 
+## [0.5.3] — 2026-07-08
+
+### Fixed
+Found immediately after 0.5.2 shipped: even with the consent clause correctly detected, replying to a permission prompt with a bare "yes", a menu pick like "1", or "sure, go ahead" — how people actually respond — still didn't lift the block.
+- `unless_user_said` only matched literal restatement of the trigger word (e.g. the user typing "npm" again). A bare affirmative is now recognized too, but only as the single most recent user message, and only when it's short and free of contrastive/negating language ("but", "hold off", "wait", "not yet", ...) — so a stale "yes" from earlier in the session, a substantive reply that merely starts with "yes", and a later "no wait" are all still correctly treated as no consent.
+- Separately, `readUserMessages()` (the live consent-check path) was reusing `extractUserText()`'s `MIN_LEN=15` filter, which exists for *mining* — where a bare "yes" is noise, not a pattern. That filter was silently deleting exactly the short replies the consent check needs to see, before the check ever ran. `extractUserText()` now takes a `minLen` option; mining keeps its default, the live hook path passes `1`.
+
 ## [0.5.2] — 2026-07-08
 
 ### Fixed

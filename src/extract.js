@@ -16,15 +16,23 @@ const SKIP_PREFIXES = [
 ];
 
 const MAX_LEN = 4000; // longer than this is almost certainly a paste, not an instruction
-const MIN_LEN = 15; // shorter carries no reusable signal ("yes", "ok", "do it")
+const MIN_LEN = 15; // shorter carries no reusable signal for MINING ("yes", "ok", "do it")
 
-export function extractUserText(entry) {
+/**
+ * @param {*} entry
+ * @param {{ minLen?: number }} [opts] - Mining wants MIN_LEN's default (a
+ *   bare "yes" is noise, not a pattern). Live consent-checking wants the
+ *   opposite: "yes"/"ok"/"1" in reply to a permission prompt is exactly the
+ *   signal it needs, so callers like readUserMessages() pass minLen: 1.
+ */
+export function extractUserText(entry, opts = {}) {
+  const minLen = opts.minLen ?? MIN_LEN;
   if (!entry) return null;
   if (entry.type === 'event_msg' && entry.payload?.type === 'user_message') {
-    return cleanText(entry.payload.message || '');
+    return cleanText(entry.payload.message || '', minLen);
   }
   if (entry.type === 'response_item' && entry.payload?.type === 'message' && entry.payload.role === 'user') {
-    return cleanContent(entry.payload.content);
+    return cleanContent(entry.payload.content, minLen);
   }
 
   const isClaudeUser = entry.type === 'user';
@@ -34,10 +42,10 @@ export function extractUserText(entry) {
   const msg = entry.message;
   if (!msg || (msg.role && msg.role !== 'user')) return null;
 
-  return cleanContent(msg.content);
+  return cleanContent(msg.content, minLen);
 }
 
-function cleanContent(content) {
+function cleanContent(content, minLen) {
   let text = '';
   if (typeof content === 'string') {
     text = content;
@@ -56,10 +64,10 @@ function cleanContent(content) {
   } else {
     return null;
   }
-  return cleanText(text);
+  return cleanText(text, minLen);
 }
 
-function cleanText(text) {
+function cleanText(text, minLen) {
   // Strip harness-injected blocks (reminders, IDE context), keep what the human typed.
   text = text
     .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '')
@@ -74,7 +82,7 @@ function cleanText(text) {
     if (text.startsWith(prefix)) return null;
   }
   if (text.includes('<command-name>')) return null;
-  if (text.length < MIN_LEN || text.length > MAX_LEN) return null;
+  if (text.length < minLen || text.length > MAX_LEN) return null;
 
   return text;
 }

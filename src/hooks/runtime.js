@@ -17,6 +17,28 @@ import {
  * must never brick the user's agent.
  */
 
+// A bare "yes"/"go ahead"/menu pick ("1") is how people actually respond to
+// a permission prompt — most won't re-type the command name. Matching this
+// against the WHOLE transcript would be dangerous ("yes" said minutes ago
+// for an unrelated reason would silently satisfy every future block), so
+// it's scoped three ways: only the single most recent user message counts,
+// that message must be short, and it must not contain contrastive/negating
+// language — "yes I know but let's hold off for now" is short enough to
+// pass a length check alone, yet clearly isn't consent.
+const BARE_AFFIRMATIVE_RE =
+  /\b(?:yes|yeah|yep|yup|sure|ok|okay|go\s*ahead|do\s*it|proceed|approved?|confirmed?|sounds?\s*good|fine|alright)\b/i;
+const BARE_NUMBER_RE = /^[1-9]\d?[.)]?$/;
+const NEGATION_RE = /\b(but|however|although|actually|wait|hold\s*off|instead|don'?t|not\s+yet|later|first|before)\b/i;
+const AFFIRMATIVE_MAX_LEN = 40;
+
+function isBareAffirmative(message) {
+  const trimmed = message.trim();
+  if (BARE_NUMBER_RE.test(trimmed)) return true;
+  if (trimmed.length > AFFIRMATIVE_MAX_LEN) return false;
+  if (NEGATION_RE.test(trimmed)) return false;
+  return BARE_AFFIRMATIVE_RE.test(trimmed);
+}
+
 export async function runHook(eventName, stdinText) {
   let event;
   try {
@@ -48,7 +70,13 @@ function preToolUse(rawEvent, cwd) {
       userMessages = readUserMessages(event.transcript_path);
     }
     const re = safeRegex(pattern);
-    return userMessages.some((m) => re.test(m));
+    // Explicit restatement of the trigger word, anywhere this session.
+    if (userMessages.some((m) => re.test(m))) return true;
+    // Otherwise, a bare "yes"/"go ahead"/"1" — but only if it's the very
+    // last thing the user said, so it reads as a direct reply to the block
+    // that just happened rather than an unrelated earlier affirmative.
+    const last = userMessages[userMessages.length - 1];
+    return last !== undefined && isBareAffirmative(last);
   };
 
   for (const rule of rules) {
@@ -136,7 +164,9 @@ export function readUserMessages(transcriptPath) {
     } catch {
       continue;
     }
-    const text = extractUserText(entry);
+    // minLen: 1 — unlike mining, a live consent check needs exactly the
+    // short replies ("yes", "1", "ok") that mining treats as noise.
+    const text = extractUserText(entry, { minLen: 1 });
     if (text && !text.startsWith('<command-') && !text.startsWith('Caveat:')) {
       messages.push(text);
     }

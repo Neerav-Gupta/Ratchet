@@ -159,6 +159,51 @@ const hookEvent = (tool, input, extra = {}) =>
   const consent = cli(['hook', 'pre-tool-use'], { input: hookEvent('Bash', { command: 'git push' }, { transcript }) });
   check('hook lifts block when user asked this session', consent.out.trim() === '');
 
+  // Regression: most people respond to a permission prompt with a bare
+  // "yes"/"1"/"sure, go ahead" rather than re-typing the command name. This
+  // was silently swallowed twice over: (1) unless_user_said only matched
+  // literal restatement of the trigger word, and (2) readUserMessages()
+  // reused extractUserText()'s MIN_LEN=15 filter, meant for mining (where a
+  // bare "yes" is noise), which deleted these exact short replies before
+  // the consent check ever saw them.
+  // Deliberately no mention of "push" anywhere but the final reply — the
+  // whole point is isolating the bare-affirmative path from the existing
+  // exact-trigger-word match, which would otherwise mask these cases.
+  const bareTranscript = (text) => {
+    const p = path.join(work, `bare-${Date.now()}-${Math.random().toString(36).slice(2)}.jsonl`);
+    fs.writeFileSync(
+      p,
+      [
+        JSON.stringify({ type: 'user', uuid: crypto.randomUUID(), message: { role: 'user', content: [{ type: 'text', text: 'please set up the deployment' }] } }),
+        JSON.stringify({ type: 'user', uuid: crypto.randomUUID(), message: { role: 'user', content: [{ type: 'text', text }] } }),
+      ].join('\n')
+    );
+    return p;
+  };
+  const bareYes = cli(['hook', 'pre-tool-use'], { input: hookEvent('Bash', { command: 'git push' }, { transcript: bareTranscript('yes') }) });
+  check('bare "yes" as the last message lifts the block', bareYes.out.trim() === '');
+  const bareNumber = cli(['hook', 'pre-tool-use'], { input: hookEvent('Bash', { command: 'git push' }, { transcript: bareTranscript('1') }) });
+  check('bare menu selection "1" lifts the block', bareNumber.out.trim() === '');
+  const bareSure = cli(['hook', 'pre-tool-use'], { input: hookEvent('Bash', { command: 'git push' }, { transcript: bareTranscript('sure, go ahead') }) });
+  check('"sure, go ahead" lifts the block', bareSure.out.trim() === '');
+  const substantive = cli(['hook', 'pre-tool-use'], {
+    input: hookEvent('Bash', { command: 'git push' }, { transcript: bareTranscript("yes I know but let's hold off for now") }),
+  });
+  check('a substantive reply merely starting with "yes" does not falsely lift the block', /deny/.test(substantive.out));
+  const staleYes = (() => {
+    const p = path.join(work, `stale-${Date.now()}.jsonl`);
+    fs.writeFileSync(
+      p,
+      [
+        JSON.stringify({ type: 'user', uuid: crypto.randomUUID(), message: { role: 'user', content: [{ type: 'text', text: 'yes' }] } }),
+        JSON.stringify({ type: 'user', uuid: crypto.randomUUID(), message: { role: 'user', content: [{ type: 'text', text: "no wait, don't do that yet" }] } }),
+      ].join('\n')
+    );
+    return p;
+  })();
+  const stale = cli(['hook', 'pre-tool-use'], { input: hookEvent('Bash', { command: 'git push' }, { transcript: staleYes }) });
+  check('an earlier "yes" does not override a later "no wait" (recency wins)', /deny/.test(stale.out));
+
   const env = cli(['hook', 'pre-tool-use'], { input: hookEvent('Edit', { file_path: path.join(work, '.env') }) });
   check('hook denies protected file edit', /deny/.test(env.out));
 
