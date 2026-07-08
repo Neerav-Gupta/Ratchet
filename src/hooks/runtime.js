@@ -1,6 +1,9 @@
 import fs from 'node:fs';
-import { loadRules, isActive, appendLog } from '../store.js';
+import path from 'node:path';
+import { loadRules, isActive, appendLog, ratchetDir } from '../store.js';
 import { evaluate, safeRegex } from '../rules.js';
+import { CORRECTION_RE } from '../cluster.js';
+import { stopHook } from './semantic.js';
 
 /**
  * Hook entry points. Claude Code pipes a JSON event on stdin; we answer with
@@ -20,6 +23,7 @@ export async function runHook(eventName, stdinText) {
   try {
     if (eventName === 'pre-tool-use') return preToolUse(event, cwd);
     if (eventName === 'user-prompt-submit') return userPromptSubmit(event, cwd);
+    if (eventName === 'stop') return stopHook(event, cwd);
   } catch (err) {
     process.stderr.write(`ratchet: hook error (failing open): ${err.message}\n`);
   }
@@ -80,10 +84,12 @@ function preToolUse(event, cwd) {
 }
 
 function userPromptSubmit(event, cwd) {
+  const prompt = String(event.prompt || '');
+  captureCandidate(prompt, cwd);
+
   const rules = loadRules(cwd).filter((r) => isActive(r) && r.tier === 'reminder');
   if (rules.length === 0) return { exitCode: 0, stdout: '' };
 
-  const prompt = String(event.prompt || '');
   const hits = rules.filter((r) => r.when && safeRegex(r.when).test(prompt)).slice(0, 3);
   if (hits.length === 0) return { exitCode: 0, stdout: '' };
 
@@ -94,6 +100,32 @@ function userPromptSubmit(event, cwd) {
       `Standing instructions from the user, previously taught and relevant to this request:\n` +
       lines.join('\n'),
   };
+}
+
+/**
+ * Live capture: when a prompt reads like a correction, remember it so
+ * `ratchet review` can offer to make it a rule. Never interrupts the session.
+ */
+export function candidatesPath(cwd) {
+  return path.join(ratchetDir(cwd), 'candidates.jsonl');
+}
+
+function captureCandidate(prompt, cwd) {
+  if (prompt.length < 15 || prompt.length > 600) return;
+  if (!CORRECTION_RE.test(prompt)) return;
+  // Only bother in repos that already use ratchet.
+  if (!fs.existsSync(ratchetDir(cwd))) return;
+
+  const norm = prompt.toLowerCase().replace(/\s+/g, ' ').trim();
+  const file = candidatesPath(cwd);
+  if (fs.existsSync(file)) {
+    const existing = fs.readFileSync(file, 'utf8');
+    if (existing.includes(JSON.stringify(norm))) return;
+  }
+  fs.appendFileSync(
+    file,
+    JSON.stringify({ ts: new Date().toISOString(), prompt: prompt.trim(), norm }) + '\n'
+  );
 }
 
 /** Scan the session transcript for what the human actually typed. */

@@ -4,7 +4,7 @@ import { loadRules, saveRule, deleteRule, findRule, isActive, readLog, uniqueId,
 import { compile } from './rules.js';
 import { mine } from './mine.js';
 import { check } from './check.js';
-import { runHook } from './hooks/runtime.js';
+import { runHook, candidatesPath } from './hooks/runtime.js';
 import { install, uninstall } from './hooks/install.js';
 
 const BOLD = '\x1b[1m';
@@ -65,7 +65,12 @@ export async function run(argv) {
     case 'init':
       return cmdInit(flags);
     case 'add':
-      return cmdAdd(positional.join(' '));
+      return cmdAdd(positional.join(' '), flags);
+    case 'review':
+      return cmdReview(flags);
+    case 'enforce':
+    case 'observe':
+      return cmdMode(positional[0], command);
     case 'install': {
       const file = install();
       console.log(`  hooks installed → ${file}`);
@@ -139,20 +144,89 @@ async function cmdInit(flags) {
   );
 }
 
-function cmdAdd(statement) {
+function cmdAdd(statement, flags = {}) {
   if (!statement) throw new Error('usage: ratchet add "never push without asking"');
-  const rule = compile(statement);
+  let rule;
+  if (flags.semantic) {
+    rule = {
+      id: slugify(statement),
+      statement,
+      tier: 'semantic',
+      mode: 'enforce',
+      created: new Date().toISOString().slice(0, 10),
+      snooze_until: null,
+    };
+  } else {
+    rule = compile(statement);
+  }
   rule.id = uniqueId(rule.id || slugify(statement));
   const file = saveRule(rule);
   if (rule.tier === 'deterministic') {
     console.log(`  ${c(GREEN, '[enforced]')} ${rule.id} → ${file}`);
     console.log(c(DIM, `  check: ${JSON.stringify(rule.check)}`));
+  } else if (rule.tier === 'semantic') {
+    console.log(`  ${c(YELLOW, '[semantic]')} ${rule.id} → ${file}`);
+    console.log(
+      c(DIM, '  judged by a model at Stop — the agent cannot finish while this is violated')
+    );
   } else {
     console.log(`  ${c(CYAN, '[reminder]')} ${rule.id} → ${file}`);
     console.log(
-      c(DIM, '  not deterministically checkable — will be injected as context when relevant')
+      c(DIM, '  not deterministically checkable — injected as context when relevant.') +
+        c(DIM, ' Use --semantic to have a model enforce it at Stop instead.')
     );
   }
+}
+
+async function cmdReview(flags) {
+  const file = candidatesPath(process.cwd());
+  if (!fs.existsSync(file)) {
+    console.log('  no captured corrections — ratchet notices them as you work.');
+    return;
+  }
+  const candidates = fs
+    .readFileSync(file, 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map((l) => {
+      try {
+        return JSON.parse(l);
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+  if (candidates.length === 0) {
+    console.log('  no captured corrections.');
+    return;
+  }
+
+  console.log(c(BOLD, `\n  ${candidates.length} correction${candidates.length === 1 ? '' : 's'} captured from your sessions:\n`));
+  let kept = 0;
+  for (const [i, cand] of candidates.entries()) {
+    const rule = compile(cand.prompt);
+    const tier = rule.tier === 'deterministic' ? c(GREEN, '[enforced]') : c(CYAN, '[reminder]');
+    console.log(`  ${c(BOLD, `${i + 1}.`)} ${tier} "${cand.prompt.slice(0, 90)}"`);
+    const yes = flags.yes || (await ask(`     keep as rule ${rule.id}? [y/N] `));
+    if (yes) {
+      rule.id = uniqueId(rule.id);
+      rule.evidence = [{ quote: cand.prompt.slice(0, 160), date: (cand.ts || '').slice(0, 10) }];
+      console.log(c(GREEN, `     ✓ ${saveRule(rule)}`));
+      kept++;
+    }
+  }
+  fs.unlinkSync(file);
+  console.log(`\n  ${kept} rule${kept === 1 ? '' : 's'} saved, queue cleared.`);
+}
+
+function cmdMode(id, mode) {
+  if (!id) throw new Error(`usage: ratchet ${mode} <id>`);
+  const rule = findRule(id);
+  if (!rule) throw new Error(`no rule "${id}"`);
+  rule.mode = mode === 'enforce' ? 'enforce' : 'observe';
+  rule.snooze_until = null;
+  saveRule(rule);
+  console.log(`  ${id} → mode: ${rule.mode}`);
 }
 
 function cmdList() {
@@ -168,7 +242,9 @@ function cmdList() {
         ? c(DIM, 'observe ')
         : r.tier === 'deterministic'
           ? c(GREEN, 'enforced')
-          : c(CYAN, 'reminder');
+          : r.tier === 'semantic'
+            ? c(YELLOW, 'semantic')
+            : c(CYAN, 'reminder');
     console.log(`  ${state}  ${c(BOLD, r.id)}  ${c(DIM, r.statement.slice(0, 70))}`);
   }
 }
@@ -229,6 +305,13 @@ function cmdStats() {
       `  ${c(BOLD, String(agg.blocked + agg.observed).padStart(4))}  ${rule}` +
         (agg.observed ? c(DIM, `  (${agg.observed} observed)`) : '')
     );
+    // Escalation nudge: an observe-mode rule that keeps firing has earned teeth.
+    if (agg.observed >= 3 && agg.blocked === 0) {
+      const r = findRule(rule);
+      if (r && r.mode === 'observe') {
+        console.log(c(YELLOW, `        ↳ observed ${agg.observed}× — consider: ratchet enforce ${rule}`));
+      }
+    }
   }
   console.log('');
 }

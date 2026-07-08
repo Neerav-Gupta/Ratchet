@@ -37,6 +37,7 @@ export function install(cwd = process.cwd()) {
 
   addEntry(settings.hooks, 'PreToolUse', MATCHER, hookCommand('pre-tool-use'));
   addEntry(settings.hooks, 'UserPromptSubmit', null, hookCommand('user-prompt-submit'));
+  addEntry(settings.hooks, 'Stop', null, hookCommand('stop'));
 
   fs.writeFileSync(file, JSON.stringify(settings, null, 2) + '\n');
   return file;
