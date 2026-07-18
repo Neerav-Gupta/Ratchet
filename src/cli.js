@@ -12,6 +12,7 @@ import { doctor } from './doctor.js';
 import { recordCreate, recordDelete, recordUpdate, undo } from './history.js';
 import { llmCompile } from './llm-compile.js';
 import { fetchLatestVersion, compareVersions, runSelfUpdate } from './selfupdate.js';
+import { parseGithubSource, fetchRemotePack } from './remote-pack.js';
 
 const BOLD = '\x1b[1m';
 const DIM = '\x1b[2m';
@@ -243,20 +244,30 @@ const COMMAND_HELP = {
   LIFO stack, one step per call.
 `,
   pack: `
-  ratchet pack [list|add <name>]
+  ratchet pack [list|add <name>|add <owner>/<repo>[/<path>]]
 
   Curated starter rule sets you'd probably want anyway. \`pack add\`
   copies the pack's rules into your own .ratchet/rules/ — they're your
   files after that, edit or delete them like anything else.
 
-  packs
+  bundled packs
     git-hygiene   no force-push, no --no-verify, no hard-reset without consent
     secrets       protect .env/keys, block hardcoded credentials
     deps          no unapproved installs, no hand-edited lockfiles
 
+  community packs — \`pack add <owner>/<repo>\` fetches every .yaml rule
+  file directly from a public GitHub repo (via its contents API, no
+  clone needed) and previews each one for you to accept individually,
+  same as \`ratchet init\`. \`<owner>/<repo>/<path>\` scopes to a
+  subdirectory. Every rule is validated before it's even shown —
+  malformed YAML or an invalid check pattern is skipped, never silently
+  installed.
+
   examples
     ratchet pack list
     ratchet pack add git-hygiene
+    ratchet pack add someuser/ratchet-packs
+    ratchet pack add someuser/ratchet-packs/security --yes
 `,
   export: `
   ratchet export [file]
@@ -364,6 +375,8 @@ export async function run(argv) {
       }
       if (sub === 'add') {
         if (!name) throw new Error('usage: ratchet pack add <name>');
+        const github = parseGithubSource(name);
+        if (github) return cmdPackAddRemote(github, flags);
         const { added, skipped } = addPack(name);
         for (const id of added) {
           recordCreate(id);
@@ -373,7 +386,7 @@ export async function run(argv) {
         if (added.length > 0) console.log(`\n  review with ${c(BOLD, 'ratchet list')} — these are your files now.`);
         return;
       }
-      throw new Error('usage: ratchet pack [list|add <name>]');
+      throw new Error('usage: ratchet pack [list|add <name>|add <owner>/<repo>]');
     }
     case 'export': {
       const file = exportRules(flags.file || positional[0] || 'CLAUDE.md');
@@ -551,6 +564,42 @@ async function cmdAdd(statement, flags = {}) {
   } else {
     console.log(`  ${c(GREEN, '✓')} saved → ${file}`);
   }
+}
+
+async function cmdPackAddRemote(github, flags = {}) {
+  const label = `${github.owner}/${github.repo}${github.path ? '/' + github.path : ''}`;
+  console.log(c(DIM, `  fetching community pack from ${label}…`));
+  const { rules, rejected, source } = await fetchRemotePack(github);
+  for (const r of rejected) {
+    console.log(c(YELLOW, `  ⚠ skipped ${r.name} — ${r.reason}`));
+  }
+  if (rules.length === 0) {
+    console.log(c(RED, '  no usable rules found.'));
+    return;
+  }
+
+  console.log(c(BOLD, `\n  ${rules.length} rule${rules.length === 1 ? '' : 's'} from ${source} — review before adding, this is someone else's rule pack:\n`));
+  const existingIds = new Set(loadRules().map((r) => r.id));
+  let added = 0;
+  for (const [i, rule] of rules.entries()) {
+    const tier =
+      rule.tier === 'deterministic' ? c(GREEN, '[enforced]') : rule.tier === 'semantic' ? c(YELLOW, '[semantic]') : c(CYAN, '[reminder]');
+    console.log(`  ${c(BOLD, `${i + 1}.`)} ${tier} ${rule.id} — ${rule.statement.slice(0, 90)}`);
+    if (rule.check) console.log(c(DIM, `     check: ${JSON.stringify(rule.check)}`));
+    const yes = flags.yes || (await ask(`     add this rule? [y/N] `));
+    if (yes) {
+      if (existingIds.has(rule.id)) rule.id = uniqueId(rule.id);
+      rule.mode = rule.mode || 'enforce';
+      rule.created = new Date().toISOString().slice(0, 10);
+      rule.snooze_until = rule.snooze_until ?? null;
+      const file = saveRule(rule);
+      recordCreate(rule.id);
+      existingIds.add(rule.id);
+      console.log(c(GREEN, `     ✓ ${file}`));
+      added++;
+    }
+  }
+  console.log(`\n  ${added} rule${added === 1 ? '' : 's'} added from ${source}.`);
 }
 
 async function cmdSelfupdate(flags = {}) {

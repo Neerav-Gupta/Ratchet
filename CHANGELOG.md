@@ -3,6 +3,11 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/); this project has not yet reached v1.0, so minor versions may include breaking changes to the rule schema.
 
+## [0.6.4] — 2026-07-17
+
+### Added
+- `ratchet pack add <owner>/<repo>[/<path>]` — community rule packs. Fetches every `.yaml` file directly from a public GitHub repo via its contents API (no registry, no clone, zero dependencies), validates each one's schema and check pattern before it's ever shown, then walks through accepting each rule individually — the same per-rule preview flow as `ratchet init`. Bundled pack names never contain a slash, so `pack add <name>` and `pack add <owner>/<repo>` share one command with no ambiguity. Defaults to declining every rule when run non-interactively (no `--yes`), same as every other pack/rule-acceptance flow in this project — a rule pack from someone else's repo shouldn't install itself silently.
+
 ## [0.6.3] — 2026-07-17
 
 ### Added

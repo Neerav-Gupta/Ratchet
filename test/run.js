@@ -9,6 +9,7 @@ import { parse, stringify } from '../src/yaml.js';
 import { compile, evaluate, globMatch } from '../src/rules.js';
 import { parseCompileOutput } from '../src/llm-compile.js';
 import { compareVersions, parseLatestVersion } from '../src/selfupdate.js';
+import { parseGithubSource, isValidRule, fetchRemotePack } from '../src/remote-pack.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const bin = path.join(__dirname, '..', 'bin', 'ratchet');
@@ -157,6 +158,54 @@ function evaluateCmd(rule, command) {
   check('parseLatestVersion extracts the version field', parseLatestVersion('{"version":"1.2.3"}') === '1.2.3');
   check('parseLatestVersion fails open on unparseable input', parseLatestVersion('not json') === null);
   check('parseLatestVersion fails open when version field is missing', parseLatestVersion('{"name":"x"}') === null);
+}
+
+// --- community packs: source parsing, rule validation, live GitHub fetch -----
+{
+  check(
+    'parseGithubSource recognizes owner/repo',
+    JSON.stringify(parseGithubSource('someuser/ratchet-packs')) === JSON.stringify({ owner: 'someuser', repo: 'ratchet-packs', path: '' })
+  );
+  check(
+    'parseGithubSource recognizes owner/repo/path',
+    JSON.stringify(parseGithubSource('someuser/ratchet-packs/security')) === JSON.stringify({ owner: 'someuser', repo: 'ratchet-packs', path: 'security' })
+  );
+  check('parseGithubSource returns null for a bundled pack name (no slash)', parseGithubSource('git-hygiene') === null);
+  check('parseGithubSource returns null for an empty string', parseGithubSource('') === null);
+
+  check(
+    'isValidRule accepts a well-formed command rule',
+    isValidRule({ id: 'x', statement: 'y', tier: 'deterministic', check: { type: 'command', pattern: '\\bfoo\\b' } })
+  );
+  check('isValidRule accepts a well-formed reminder', isValidRule({ id: 'x', statement: 'y', tier: 'reminder' }));
+  check(
+    'isValidRule rejects an invalid regex pattern',
+    !isValidRule({ id: 'x', statement: 'y', tier: 'deterministic', check: { type: 'command', pattern: '[unclosed' } })
+  );
+  check('isValidRule rejects a deterministic rule with no check', !isValidRule({ id: 'x', statement: 'y', tier: 'deterministic' }));
+  check('isValidRule rejects an unknown tier', !isValidRule({ id: 'x', statement: 'y', tier: 'nonsense' }));
+  check('isValidRule rejects a rule with no id', !isValidRule({ statement: 'y', tier: 'reminder' }));
+
+  try {
+    await fetchRemotePack({ owner: 'this-owner-should-not-exist-xyz-999', repo: 'nope', path: '' });
+    check('fetchRemotePack throws a clear error for a nonexistent repo', false);
+  } catch (err) {
+    check('fetchRemotePack throws a clear error for a nonexistent repo', /couldn't reach/.test(err.message));
+  }
+
+  // Live integration check against this project's own public repo — real
+  // network, real GitHub contents API, real rule YAML. Soft-skips (no
+  // assertion) if the network is unavailable rather than failing the suite,
+  // consistent with how the rest of this project treats external services.
+  try {
+    const result = await fetchRemotePack({ owner: 'Neerav-Gupta', repo: 'Ratchet', path: 'packs/git-hygiene' });
+    check(
+      'fetchRemotePack retrieves real, valid rules from a public GitHub repo',
+      result.rules.length > 0 && result.rejected.length === 0 && result.rules.every(isValidRule)
+    );
+  } catch {
+    console.log('  (skipped live GitHub fetch check — network unavailable)');
+  }
 }
 
 // --- evaluate ---------------------------------------------------------------
@@ -755,6 +804,28 @@ const hookEvent = (tool, input, extra = {}) =>
   check('pack add is idempotent', /already present/.test(again.out));
   const missing = cli(['pack', 'add', 'nonsense']);
   check('unknown pack errors helpfully', missing.code === 1 && /available/.test(missing.out));
+
+  // Community packs (feature 5/5): `pack add <owner>/<repo>` fetches real
+  // rule files over the network via the GitHub contents API. The
+  // nonexistent-repo case is network-state-independent (offline and a
+  // real 404 both surface as "couldn't reach"), so it's asserted
+  // unconditionally; the live-fetch cases soft-skip if the network isn't
+  // actually reachable right now, same as the fetchRemotePack unit test.
+  const badRepo = cli(['pack', 'add', 'this-owner-should-not-exist-xyz-999/nope']);
+  check('community pack add on a nonexistent repo errors clearly', badRepo.code === 1 && /couldn't reach/.test(badRepo.out));
+
+  const remote = cli(['pack', 'add', 'Neerav-Gupta/Ratchet/packs/git-hygiene', '--yes']);
+  if (remote.code === 0) {
+    check('community pack add fetches and saves real rules from a public GitHub repo', /rules added from Neerav-Gupta\/Ratchet/.test(remote.out));
+    const rulesDir = path.join(work, '.ratchet', 'rules');
+    check('community pack rule file saved to disk', fs.existsSync(path.join(rulesDir, 'no-force-push.yaml')));
+    for (const id of ['no-force-push', 'no-hard-reset', 'no-skip-hooks']) cli(['rm', id]);
+
+    const declined = cli(['pack', 'add', 'Neerav-Gupta/Ratchet/packs/git-hygiene']);
+    check('community pack add declines all rules non-interactively without --yes', /0 rules added/.test(declined.out));
+  } else {
+    console.log('  (skipped live community pack CLI checks — network unavailable)');
+  }
 }
 
 // --- v0.3: export ----------------------------------------------------------------

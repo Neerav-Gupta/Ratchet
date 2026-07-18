@@ -109,6 +109,15 @@ ratchet pack add deps          # no unapproved installs, no hand-edited lockfile
 
 Pack rules are copied into *your* `.ratchet/rules/` — edit or delete them like anything else.
 
+**Or pull one from the community.** `ratchet pack add <owner>/<repo>` fetches every `.yaml` rule file straight from a public GitHub repo — no registry, no clone — and walks you through accepting each rule individually, same as `ratchet init`:
+
+```sh
+ratchet pack add someuser/ratchet-packs
+ratchet pack add someuser/ratchet-packs/security   # scope to a subdirectory
+```
+
+Every fetched rule is validated (well-formed check, valid regex) before it's even shown to you — nothing installs silently.
+
 ## Commands
 
 ```
