@@ -3,6 +3,14 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/); this project has not yet reached v1.0, so minor versions may include breaking changes to the rule schema.
 
+## [0.6.2] — 2026-07-17
+
+### Added
+- `ratchet add` now falls back to an LLM-assisted compile when the regex-based compiler can only produce an unenforceable reminder (e.g. "block any command that tries to delete the database" — no specific command name the templates recognize). Calls the local `claude` CLI, validates the result (valid JS regex, not trivially broad, right shape), and only ever produces `command`/`file_protect`/`content` checks — never a semantic rule. Every failure mode (no binary, timeout, bad JSON, invalid pattern) fails open to the existing reminder-preview flow, so this can never make `add` worse, only sometimes better. Shown as `[llm-compiled]` and confirmed before saving, same as a reminder preview. `--no-llm` opts out.
+
+### Fixed
+- The model reliably proposed sound checks in substance but sometimes reached for `(?i)`/`(?i:...)` inline case-insensitivity flags — valid in PCRE/Python, not in JavaScript — which made `new RegExp()` throw and the whole compile attempt fail even though the underlying pattern was fine. Since `safeRegex()` in `rules.js` already matches every check case-insensitively, the flag was always redundant; it's now stripped rather than treated as a reason to reject the pattern.
+
 ## [0.6.1] — 2026-07-08
 
 ### Added

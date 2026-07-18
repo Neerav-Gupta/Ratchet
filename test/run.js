@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 
 import { parse, stringify } from '../src/yaml.js';
 import { compile, evaluate, globMatch } from '../src/rules.js';
+import { parseCompileOutput } from '../src/llm-compile.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const bin = path.join(__dirname, '..', 'bin', 'ratchet');
@@ -106,6 +107,44 @@ function evaluateCmd(rule, command) {
   return evaluate(rule, { tool_name: 'Bash', tool_input: { command }, cwd: '/x' });
 }
 
+// --- LLM-assisted compile fallback: output parsing/validation ----------------
+// Exercises parseCompileOutput() against canned model output rather than a
+// real `claude` process, so results don't depend on model availability or
+// behavior — only this module's parsing/sanitization/validation logic.
+{
+  const clean = parseCompileOutput('{"type":"command","pattern":"\\\\bdropdb\\\\b"}');
+  check('parses a clean command check', clean?.type === 'command' && clean.pattern === '\\bdropdb\\b');
+
+  const fenced = parseCompileOutput('```json\n{"type":"command","pattern":"\\\\btruncate\\\\b"}\n```\n');
+  check('parses JSON wrapped in a markdown code fence', fenced?.type === 'command' && fenced.pattern === '\\btruncate\\b');
+
+  const inlineFlag = parseCompileOutput('{"type":"command","pattern":"(?i)(drop\\\\s+database|dropdb)"}');
+  check(
+    'strips a leading (?i) inline flag rather than rejecting an otherwise-valid pattern',
+    inlineFlag?.type === 'command' && inlineFlag.pattern === '(drop\\s+database|dropdb)'
+  );
+
+  const wrappedFlag = parseCompileOutput('{"type":"command","pattern":"(?i:drop\\\\s+database)"}');
+  check(
+    'unwraps a (?i:...) inline-flag group to its inner pattern',
+    wrappedFlag?.type === 'command' && wrappedFlag.pattern === 'drop\\s+database'
+  );
+
+  check('honors an explicit {"type":"none"} response', parseCompileOutput('{"type":"none"}') === null);
+  check('rejects a trivially-broad pattern like .*', parseCompileOutput('{"type":"command","pattern":".*"}') === null);
+  check('rejects an unparseable response', parseCompileOutput('not json at all') === null);
+  check('rejects empty output', parseCompileOutput('') === null);
+
+  const fileProtect = parseCompileOutput('{"type":"file_protect","paths":["secrets/**","*.pem"]}');
+  check(
+    'parses a file_protect check',
+    fileProtect?.type === 'file_protect' && fileProtect.paths.length === 2
+  );
+
+  const content = parseCompileOutput('{"type":"content","pattern":"eval\\\\(","files":["*.js"]}');
+  check('parses a content check with a files scope', content?.type === 'content' && content.files?.[0] === '*.js');
+}
+
 // --- evaluate ---------------------------------------------------------------
 {
   const rule = compile("never push unless I ask");
@@ -153,7 +192,7 @@ function cli(args, { input, cwd = work } = {}) {
 cli(['add', "never push to github unless I tell you to"]);
 cli(['add', 'never edit the .env file']);
 cli(['add', 'never use `console.log` in *.ts files']);
-cli(['add', 'prefer small focused diffs when refactoring']);
+cli(['add', '--no-llm', 'prefer small focused diffs when refactoring']);
 
 check('add created 4 rule files', fs.readdirSync(path.join(work, '.ratchet', 'rules')).length === 4);
 
@@ -164,7 +203,7 @@ check('add created 4 rule files', fs.readdirSync(path.join(work, '.ratchet', 'ru
 // the old save-immediately behavior; confirmProceed() only pauses for an
 // actual interactive TTY.
 {
-  const reminderAdd = cli(['add', 'be thoughtful about naming things']);
+  const reminderAdd = cli(['add', '--no-llm', 'be thoughtful about naming things']);
   check(
     'add previews a reminder-tier compile before saving',
     /\[reminder\]/.test(reminderAdd.out) && /never blocks anything/.test(reminderAdd.out)
@@ -176,13 +215,30 @@ check('add created 4 rule files', fs.readdirSync(path.join(work, '.ratchet', 'ru
   );
   cli(['rm', 'be-thoughtful-about-naming-things']);
 
-  const yesAdd = cli(['add', '--yes', 'write helpful commit messages']);
+  const yesAdd = cli(['add', '--yes', '--no-llm', 'write helpful commit messages']);
   check(
     '--yes saves a reminder without needing confirmation',
     /saved/.test(yesAdd.out) &&
       fs.existsSync(path.join(work, '.ratchet', 'rules', 'write-helpful-commit-messages.yaml'))
   );
   cli(['rm', 'write-helpful-commit-messages']);
+}
+
+// --- v0.6.2: --no-llm skips the LLM-assisted compile fallback ----------------
+// "block any command that tries to delete the database" names no specific
+// command the regex templates recognize, so it's exactly the kind of
+// statement the LLM fallback exists for. --no-llm must short-circuit before
+// ever attempting it, so this stays a plain reminder deterministically —
+// regardless of whether a `claude` binary happens to be on this machine.
+{
+  const noLlmAdd = cli(['add', '--no-llm', 'block any command that tries to delete the database']);
+  check(
+    '--no-llm skips the LLM fallback and saves a plain reminder',
+    /\[reminder\]/.test(noLlmAdd.out) && !/llm-compiled/.test(noLlmAdd.out)
+  );
+  const rulesDir = path.join(work, '.ratchet', 'rules');
+  const noLlmId = fs.readdirSync(rulesDir).find((f) => f.includes('delete-the-database'))?.replace('.yaml', '');
+  if (noLlmId) cli(['rm', noLlmId]);
 }
 
 const hookEvent = (tool, input, extra = {}) =>
@@ -769,7 +825,7 @@ const hookEvent = (tool, input, extra = {}) =>
     check('ratchet test allows clean content', /would ALLOW/.test(contentAllowed.out));
   }
 
-  cli(['add', '--yes', 'prefer small pull requests']);
+  cli(['add', '--yes', '--no-llm', 'prefer small pull requests']);
   const reminderId = fs.readdirSync(rulesDir).find((f) => f.includes('pull-requests'))?.replace('.yaml', '');
   if (reminderId) {
     const reminderHit = cli(['test', reminderId, 'let\'s keep this pull request small']);

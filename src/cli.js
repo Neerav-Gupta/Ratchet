@@ -10,6 +10,7 @@ import { listPacks, addPack } from './packs.js';
 import { exportRules } from './export.js';
 import { doctor } from './doctor.js';
 import { recordCreate, recordDelete, recordUpdate, undo } from './history.js';
+import { llmCompile } from './llm-compile.js';
 
 const BOLD = '\x1b[1m';
 const DIM = '\x1b[2m';
@@ -463,6 +464,34 @@ async function cmdAdd(statement, flags = {}) {
   if (!statement) throw new Error('usage: ratchet add "never push without asking"');
   let rule = flags.semantic ? null : compile(statement);
 
+  // The regex compiler only recognizes a fixed set of phrasings. When it
+  // can't find a deterministic form, try a model before giving up and
+  // saving an unenforceable reminder — it can often see the specific
+  // command/file/content the regex templates missed.
+  if (rule && rule.tier === 'reminder' && !flags.semantic && !flags['no-llm']) {
+    const check = llmCompile(statement);
+    if (check) {
+      rule = {
+        id: slugify(statement),
+        statement,
+        mode: 'enforce',
+        created: new Date().toISOString().slice(0, 10),
+        snooze_until: null,
+        tier: 'deterministic',
+        check,
+      };
+      console.log(`  ${c(CYAN, '[llm-compiled]')} the built-in compiler couldn't find a deterministic form — a model proposed one:`);
+      console.log(c(DIM, `  check: ${JSON.stringify(rule.check)}`));
+      if (!flags.yes) {
+        const proceed = await confirmProceed(c(YELLOW, '  Save this LLM-compiled rule? [Y/n] '));
+        if (!proceed) {
+          console.log(c(DIM, '  not saved — try rephrasing.'));
+          return;
+        }
+      }
+    }
+  }
+
   // A reminder never blocks anything — this is exactly the failure mode
   // that bit real usage repeatedly this session (an "an"/"any" in the
   // statement silently produced an unenforceable rule). Give a chance to
@@ -784,7 +813,7 @@ function parseArgs(argv) {
     if (a === '--version' || a === '-v') return { command: 'version', positional, flags };
     if (a.startsWith('--')) {
       const key = a.slice(2);
-      if (['yes', 'json', 'semantic', 'pre-commit', 'claude', 'cursor', 'codex', 'help'].includes(key)) flags[key] = true;
+      if (['yes', 'json', 'semantic', 'no-llm', 'pre-commit', 'claude', 'cursor', 'codex', 'help'].includes(key)) flags[key] = true;
       else {
         const val = argv[++i];
         if (val === undefined) throw new Error(`--${key} needs a value`);
