@@ -8,6 +8,7 @@ import crypto from 'node:crypto';
 import { parse, stringify } from '../src/yaml.js';
 import { compile, evaluate, globMatch } from '../src/rules.js';
 import { parseCompileOutput } from '../src/llm-compile.js';
+import { compareVersions, parseLatestVersion } from '../src/selfupdate.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const bin = path.join(__dirname, '..', 'bin', 'ratchet');
@@ -143,6 +144,19 @@ function evaluateCmd(rule, command) {
 
   const content = parseCompileOutput('{"type":"content","pattern":"eval\\\\(","files":["*.js"]}');
   check('parses a content check with a files scope', content?.type === 'content' && content.files?.[0] === '*.js');
+}
+
+// --- selfupdate: version comparison + registry response parsing --------------
+{
+  check('compareVersions: older < newer', compareVersions('0.6.1', '0.6.2') === -1);
+  check('compareVersions: newer > older', compareVersions('0.6.2', '0.6.1') === 1);
+  check('compareVersions: equal versions', compareVersions('0.6.2', '0.6.2') === 0);
+  check('compareVersions: major version wins over minor/patch', compareVersions('1.0.0', '0.9.9') === 1);
+  check('compareVersions: handles differing segment counts', compareVersions('1.2', '1.2.1') === -1);
+
+  check('parseLatestVersion extracts the version field', parseLatestVersion('{"version":"1.2.3"}') === '1.2.3');
+  check('parseLatestVersion fails open on unparseable input', parseLatestVersion('not json') === null);
+  check('parseLatestVersion fails open when version field is missing', parseLatestVersion('{"name":"x"}') === null);
 }
 
 // --- evaluate ---------------------------------------------------------------
@@ -759,6 +773,14 @@ const hookEvent = (tool, input, extra = {}) =>
 {
   const d = cli(['doctor']);
   check('doctor reports rule and hook status', /rule/.test(d.out) && /hooks/.test(d.out));
+
+  // Whatever the registry's actual reachability/state, `selfupdate --check`
+  // must land on exactly one clean outcome, never hang or crash.
+  const su = cli(['selfupdate', '--check']);
+  check(
+    '`selfupdate --check` reports a version verdict without installing anything',
+    /up to date|is available|could not reach npm/.test(su.out)
+  );
 
   const pc = cli(['install', '--pre-commit']);
   const hookFile = path.join(work, '.git', 'hooks', 'pre-commit');

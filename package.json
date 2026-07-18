@@ -1,6 +1,6 @@
 {
   "name": "ratchet-cc",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "Every correction you give your coding agent becomes an enforced check it can never violate again. CLAUDE.md is advice; Ratchet is law.",
   "type": "module",
   "bin": {

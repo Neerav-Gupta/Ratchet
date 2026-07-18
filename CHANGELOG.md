@@ -3,6 +3,12 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/); this project has not yet reached v1.0, so minor versions may include breaking changes to the rule schema.
 
+## [0.6.3] — 2026-07-17
+
+### Added
+- `ratchet doctor` now checks the npm registry for the latest published `ratchet-cc` version and flags a stale global install (with `ratchet selfupdate` as the fix), motivated directly by this session's own global npm install being stuck on an old version for hours despite newer releases existing.
+- `ratchet selfupdate [--check]` — runs `npm install -g ratchet-cc@latest` when a newer version is available; `--check` reports without installing. Both the version check and the installer fail open: no network, a registry outage, or npm itself failing all report cleanly rather than hanging or crashing `doctor`/`selfupdate`.
+
 ## [0.6.2] — 2026-07-17
 
 ### Added

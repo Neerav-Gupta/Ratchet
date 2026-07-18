@@ -11,6 +11,7 @@ import { exportRules } from './export.js';
 import { doctor } from './doctor.js';
 import { recordCreate, recordDelete, recordUpdate, undo } from './history.js';
 import { llmCompile } from './llm-compile.js';
+import { fetchLatestVersion, compareVersions, runSelfUpdate } from './selfupdate.js';
 
 const BOLD = '\x1b[1m';
 const DIM = '\x1b[2m';
@@ -53,6 +54,7 @@ const HELP = `
     ratchet pack [list|add <name>]    curated starter rule sets
     ratchet export [file]       render rules into CLAUDE.md / AGENTS.md
     ratchet doctor              verify the installation
+    ratchet selfupdate [--check]  update the global install to the latest version
 
   rules live in .ratchet/rules/*.yaml — commit them. They are the product.
 
@@ -275,8 +277,20 @@ const COMMAND_HELP = {
 
   Sanity-check the installation: Node version, whether rules parse
   cleanly, whether hooks are wired in for each agent, whether a
-  semantic-judge binary is available if any semantic rules exist, and
-  whether .gitignore covers ratchet's local-only state.
+  semantic-judge binary is available if any semantic rules exist,
+  whether .gitignore covers ratchet's local-only state, and whether
+  this install is the latest version published to npm.
+`,
+  selfupdate: `
+  ratchet selfupdate [--check]
+
+  Check npm for a newer version of ratchet-cc and, if one exists,
+  install it with \`npm install -g ratchet-cc@latest\`.
+
+    --check    only report whether an update is available; don't install it
+
+  Fails open: if npm can't be reached (offline, registry down), says so
+  and exits cleanly rather than erroring.
 `,
 };
 
@@ -369,13 +383,15 @@ export async function run(argv) {
     }
     case 'doctor': {
       let bad = 0;
-      for (const r of doctor()) {
+      for (const r of await doctor()) {
         console.log(`  ${r.ok ? c(GREEN, '✓') : c(RED, '✗')} ${r.name}${r.detail ? c(DIM, ` — ${r.detail}`) : ''}`);
         if (!r.ok) bad++;
       }
       process.exitCode = bad > 0 ? 1 : 0;
       return;
     }
+    case 'selfupdate':
+      return cmdSelfupdate(flags);
     case 'uninstall': {
       const targets = installTargets(flags);
       const files = uninstall(undefined, targets);
@@ -535,6 +551,31 @@ async function cmdAdd(statement, flags = {}) {
   } else {
     console.log(`  ${c(GREEN, '✓')} saved → ${file}`);
   }
+}
+
+async function cmdSelfupdate(flags = {}) {
+  const currentVersion = JSON.parse(
+    fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')
+  ).version;
+  console.log(c(DIM, `  current: v${currentVersion} — checking npm for the latest…`));
+  const latestVersion = await fetchLatestVersion();
+  if (!latestVersion) {
+    console.log(c(YELLOW, '  could not reach npm to check for updates — offline, or the registry is unreachable.'));
+    return;
+  }
+  if (compareVersions(currentVersion, latestVersion) >= 0) {
+    console.log(c(GREEN, `  ✓ already up to date (v${currentVersion})`));
+    return;
+  }
+  console.log(`  v${latestVersion} is available.`);
+  if (flags.check) {
+    console.log(c(DIM, '  run `ratchet selfupdate` (without --check) to install it.'));
+    return;
+  }
+  console.log(c(DIM, '  running: npm install -g ratchet-cc@latest'));
+  const ok = runSelfUpdate();
+  console.log(ok ? c(GREEN, `  ✓ updated to v${latestVersion}`) : c(RED, '  npm install failed — see output above.'));
+  process.exitCode = ok ? 0 : 1;
 }
 
 async function cmdReview(flags) {
@@ -813,7 +854,7 @@ function parseArgs(argv) {
     if (a === '--version' || a === '-v') return { command: 'version', positional, flags };
     if (a.startsWith('--')) {
       const key = a.slice(2);
-      if (['yes', 'json', 'semantic', 'no-llm', 'pre-commit', 'claude', 'cursor', 'codex', 'help'].includes(key)) flags[key] = true;
+      if (['yes', 'json', 'semantic', 'no-llm', 'check', 'pre-commit', 'claude', 'cursor', 'codex', 'help'].includes(key)) flags[key] = true;
       else {
         const val = argv[++i];
         if (val === undefined) throw new Error(`--${key} needs a value`);

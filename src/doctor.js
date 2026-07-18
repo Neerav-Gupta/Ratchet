@@ -4,9 +4,10 @@ import { execFileSync } from 'node:child_process';
 import { rulesDir, loadRules } from './store.js';
 import { settingsPath, cursorHooksPath, codexConfigPath } from './hooks/install.js';
 import { findClaudeBinary } from './hooks/semantic.js';
+import { fetchLatestVersion, compareVersions } from './selfupdate.js';
 
 /** Sanity-check an installation and explain how to fix what's off. */
-export function doctor(cwd = process.cwd()) {
+export async function doctor(cwd = process.cwd()) {
   const results = [];
   const ok = (name, detail) => results.push({ ok: true, name, detail });
   const bad = (name, detail) => results.push({ ok: false, name, detail });
@@ -65,6 +66,18 @@ export function doctor(cwd = process.cwd()) {
   } catch {
     bad('not a git repository', 'semantic judging and staged-file checks are disabled');
   }
+
+  const currentVersion = JSON.parse(
+    fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')
+  ).version;
+  const latestVersion = await fetchLatestVersion();
+  if (latestVersion) {
+    compareVersions(currentVersion, latestVersion) < 0
+      ? bad(`ratchet v${currentVersion} installed`, `v${latestVersion} is available — run \`ratchet selfupdate\``)
+      : ok(`ratchet v${currentVersion} (up to date)`);
+  }
+  // No result pushed when the check itself fails (offline, registry
+  // unreachable) — that's not something to flag as broken.
 
   return results;
 }

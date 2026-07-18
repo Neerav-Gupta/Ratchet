@@ -131,6 +131,7 @@ ratchet undo                 revert the last add/rm/mode/snooze change
 ratchet pack list|add <name> curated starter rule sets
 ratchet export [file]        render the rulebook into CLAUDE.md / AGENTS.md
 ratchet doctor               verify the installation
+ratchet selfupdate [--check] update the global install to the latest version
 ```
 
 Every command above has its own detailed help: `ratchet <command> --help` (or `-h`).
