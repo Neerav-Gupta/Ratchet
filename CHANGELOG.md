@@ -3,6 +3,11 @@
 All notable changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/); this project has not yet reached v1.0, so minor versions may include breaking changes to the rule schema.
 
+## [0.6.1] — 2026-07-08
+
+### Added
+- `ratchet test <id> <input>` — simulate a rule against a hypothetical command, file, or prompt without a live agent session or a real transcript. Uses the exact same `evaluate()` logic (and, via `--said`, the exact same consent logic) the live hooks use, so the answer matches what would actually happen. Supports every deterministic check type plus reminders; semantic rules explain why they can't be simulated this way (they need a real diff). This packages the manual `echo '{...}' | ratchet hook pre-tool-use` workflow used throughout this project's own development into a real command.
+
 ## [0.6.0] — 2026-07-08
 
 ### Added

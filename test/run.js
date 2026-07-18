@@ -739,6 +739,58 @@ const hookEvent = (tool, input, extra = {}) =>
   check('--help on an unknown command still errors', unknownHelp.code === 1 && /unknown command/.test(unknownHelp.out));
 }
 
+// --- ratchet test: simulate a rule without a live agent session --------------
+{
+  const rulesDir = path.join(work, '.ratchet', 'rules');
+  const envRuleId = fs.readdirSync(rulesDir).find((f) => f.includes('protect'))?.replace('.yaml', '');
+  const consoleRuleId = fs.readdirSync(rulesDir).find((f) => f.includes('consolelog') || f.includes('console-log'))?.replace('.yaml', '');
+
+  const blocked = cli(['test', 'no-git-push-without-consent', 'git push origin main']);
+  check('ratchet test reports a command-type block', /would BLOCK/.test(blocked.out) && /reason:/.test(blocked.out));
+
+  const allowedExact = cli(['test', 'no-git-push-without-consent', 'git push', '--said', 'sure, push it']);
+  check('ratchet test --said (exact trigger word) allows through the same consent logic as the live hook', /would ALLOW/.test(allowedExact.out));
+
+  const allowedBare = cli(['test', 'no-git-push-without-consent', 'git push', '--said', 'yes go ahead']);
+  check('ratchet test --said (bare affirmative) also allows through', /would ALLOW/.test(allowedBare.out));
+
+  const allowedUnrelated = cli(['test', 'no-git-push-without-consent', 'git status']);
+  check('ratchet test allows an innocent command', /would ALLOW/.test(allowedUnrelated.out));
+
+  if (envRuleId) {
+    const fileBlocked = cli(['test', envRuleId, '.env']);
+    check('ratchet test reports a file_protect-type block', /would BLOCK/.test(fileBlocked.out));
+  }
+
+  if (consoleRuleId) {
+    const contentBlocked = cli(['test', consoleRuleId, 'console.log(1)']);
+    check('ratchet test reports a content-type block, guessing a scoped filename automatically', /would BLOCK/.test(contentBlocked.out));
+    const contentAllowed = cli(['test', consoleRuleId, 'export {}']);
+    check('ratchet test allows clean content', /would ALLOW/.test(contentAllowed.out));
+  }
+
+  cli(['add', '--yes', 'prefer small pull requests']);
+  const reminderId = fs.readdirSync(rulesDir).find((f) => f.includes('pull-requests'))?.replace('.yaml', '');
+  if (reminderId) {
+    const reminderHit = cli(['test', reminderId, 'let\'s keep this pull request small']);
+    check('ratchet test reports a reminder-type match', /would inject as a reminder/.test(reminderHit.out));
+    const reminderMiss = cli(['test', reminderId, 'totally unrelated request']);
+    check('ratchet test reports a reminder-type non-match', /would not trigger/.test(reminderMiss.out));
+    cli(['rm', reminderId]);
+  }
+
+  cli(['add', '--semantic', 'keep functions short']);
+  const semanticId = fs.readdirSync(rulesDir).find((f) => f.includes('functions-short'))?.replace('.yaml', '');
+  if (semanticId) {
+    const semanticTest = cli(['test', semanticId, 'anything']);
+    check('ratchet test explains semantic rules cannot be simulated this way', /cannot be simulated/.test(semanticTest.out));
+    cli(['rm', semanticId]);
+  }
+
+  const missingId = cli(['test', 'no-such-rule', 'anything']);
+  check('ratchet test errors clearly on an unknown rule id', missingId.code === 1 && /no rule/.test(missingId.out));
+}
+
 fs.rmSync(work, { recursive: true, force: true });
 console.log(failures === 0 ? '\n  all tests passed\n' : `\n  ${failures} test(s) failed\n`);
 process.exit(failures === 0 ? 0 : 1);

@@ -1,7 +1,7 @@
 {
   "name": "ratchet",
   "displayName": "Ratchet",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Every correction you give your agent becomes an enforced check it can never violate again. CLAUDE.md is advice; Ratchet is law.",
   "author": {
     "name": "Neerav Gupta",

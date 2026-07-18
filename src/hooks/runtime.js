@@ -31,7 +31,10 @@ const BARE_NUMBER_RE = /^[1-9]\d?[.)]?$/;
 const NEGATION_RE = /\b(but|however|although|actually|wait|hold\s*off|instead|don'?t|not\s+yet|later|first|before)\b/i;
 const AFFIRMATIVE_MAX_LEN = 40;
 
-function isBareAffirmative(message) {
+// Exported so `ratchet test`'s --said simulates the exact same consent
+// logic the live hook uses, rather than a hand-duplicated approximation
+// that could quietly drift out of sync with it.
+export function isBareAffirmative(message) {
   const trimmed = message.trim();
   if (BARE_NUMBER_RE.test(trimmed)) return true;
   if (trimmed.length > AFFIRMATIVE_MAX_LEN) return false;

@@ -121,6 +121,7 @@ ratchet install/uninstall    wire/remove hooks for Claude Code, Cursor, and Code
    install --codex           only .codex/config.toml
    install --pre-commit      also run `ratchet check` before every commit
 ratchet list / why <id>      rules, status, and the conversations behind them
+ratchet test <id> <input>    simulate a rule — no live session needed
 ratchet enforce/observe <id> set a rule's teeth
 ratchet check [--json]       static enforcement for pre-commit / CI
 ratchet stats                violations caught, per rule (+ escalation hints)

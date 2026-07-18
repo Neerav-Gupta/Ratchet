@@ -1,10 +1,10 @@
 import fs from 'node:fs';
 import readline from 'node:readline';
 import { loadRules, saveRule, deleteRule, findRule, isActive, readLog, uniqueId, slugify } from './store.js';
-import { compile } from './rules.js';
+import { compile, evaluate, safeRegex } from './rules.js';
 import { mine } from './mine.js';
 import { check } from './check.js';
-import { runHook, candidatesPath } from './hooks/runtime.js';
+import { runHook, candidatesPath, isBareAffirmative } from './hooks/runtime.js';
 import { install, uninstall, installPreCommit } from './hooks/install.js';
 import { listPacks, addPack } from './packs.js';
 import { exportRules } from './export.js';
@@ -42,6 +42,7 @@ const HELP = `
     ratchet uninstall           remove ratchet's hooks (rules stay)
     ratchet list                show rules and their status
     ratchet why <id>            show the evidence behind a rule
+    ratchet test <id> <input>   simulate a rule without a live agent session
     ratchet enforce/observe <id>  set a rule's mode
     ratchet check [--json]      run content/path rules statically (CI, pre-commit)
     ratchet stats               violations blocked, by rule
@@ -154,6 +155,34 @@ const COMMAND_HELP = {
 
   example
     ratchet why no-git-push-without-consent
+`,
+  test: `
+  ratchet test <id> <input> [<input2>] [--said <text>] [--file <path>]
+
+  Simulate a rule against a hypothetical command, file, or prompt —
+  no live agent session, no real transcript required. Same evaluation
+  logic the live hooks use, so the answer matches what would actually
+  happen.
+
+  what <input> means depends on the rule's check type
+    command        the shell command to test
+    file_protect   the file path to test
+    content        the content to test (add --file to control which
+                   path it's attributed to, for rules scoped by glob;
+                   otherwise a plausible filename is guessed from the
+                   rule's own file globs)
+    reminder       the prompt text to test against the rule's trigger
+    semantic       can't be simulated this way — needs a real diff
+
+  options
+    --said <text>   pretend this was the user's most recent message,
+                    to test whether it would satisfy unless_user_said
+
+  examples
+    ratchet test no-npm-command "npm install express"
+    ratchet test no-npm-command "npm install" --said "yes go ahead"
+    ratchet test protect-env ".env"
+    ratchet test no-console-log "console.log(1)"
 `,
   enforce: `
   ratchet enforce <id>
@@ -359,6 +388,8 @@ export async function run(argv) {
       return cmdList();
     case 'why':
       return cmdWhy(positional[0]);
+    case 'test':
+      return cmdTest(positional[0], positional.slice(1), flags);
     case 'check':
       return cmdCheck(flags);
     case 'stats':
@@ -567,6 +598,73 @@ function cmdWhy(id) {
   }
   const blocks = readLog().filter((l) => l.rule === rule.id);
   console.log(`\n  ${blocks.length} violation${blocks.length === 1 ? '' : 's'} caught so far.\n`);
+}
+
+function cmdTest(id, inputs, flags = {}) {
+  if (!id) throw new Error('usage: ratchet test <id> <input> [<input2>]');
+  const rule = findRule(id);
+  if (!rule) throw new Error(`no rule "${id}"`);
+
+  // Mirrors hooks/runtime.js's userSaid exactly: the trigger word, or a
+  // bare affirmative, in --said's text (standing in for "the most recent
+  // user message").
+  const userSaid = (pattern) =>
+    flags.said !== undefined && (safeRegex(pattern).test(flags.said) || isBareAffirmative(flags.said));
+
+  if (rule.tier === 'semantic') {
+    console.log(c(YELLOW, '  semantic rules are judged by a model against a real diff — cannot be simulated here.'));
+    console.log(c(DIM, '  make a real change and run the agent normally to exercise this one.'));
+    return;
+  }
+
+  if (rule.tier === 'reminder') {
+    const prompt = inputs[0];
+    if (!prompt) throw new Error('usage: ratchet test <id> "<prompt text>"');
+    const matches = rule.when && safeRegex(rule.when).test(prompt);
+    if (matches) console.log(c(CYAN, `  ↳ would inject as a reminder — prompt matches /${rule.when}/`));
+    else console.log(c(DIM, `  would not trigger — prompt does not match /${rule.when}/`));
+    return;
+  }
+
+  const check = rule.check;
+  let event;
+  if (check.type === 'command') {
+    const command = inputs[0];
+    if (!command) throw new Error('usage: ratchet test <id> "<command>"');
+    event = { tool_name: check.tool || 'Bash', tool_input: { command }, cwd: process.cwd() };
+  } else if (check.type === 'file_protect') {
+    const file = inputs[0];
+    if (!file) throw new Error('usage: ratchet test <id> "<file-path>"');
+    event = { tool_name: 'Edit', tool_input: { file_path: file }, cwd: process.cwd() };
+  } else if (check.type === 'content') {
+    let file = flags.file;
+    let content = inputs[0];
+    if (inputs.length > 1) {
+      file = inputs[0];
+      content = inputs[1];
+    }
+    if (!content) throw new Error('usage: ratchet test <id> "<content>" (or <file> <content>)');
+    if (!file) file = guessFileFromGlobs(check.files);
+    event = { tool_name: 'Write', tool_input: { file_path: file, content }, cwd: process.cwd() };
+  } else {
+    throw new Error(`don't know how to simulate check type "${check.type}"`);
+  }
+
+  const result = evaluate(rule, event, { userSaid });
+  if (result.violated) {
+    console.log(c(RED, '  ⛔ would BLOCK'));
+    console.log(c(DIM, `  reason: ${result.reason}`));
+  } else {
+    console.log(c(GREEN, '  ✓ would ALLOW'));
+  }
+}
+
+function guessFileFromGlobs(globs) {
+  const g = Array.isArray(globs) ? globs[0] : globs;
+  if (!g) return 'test.txt';
+  const ext = g.match(/\.[a-zA-Z0-9]+$/);
+  if (ext) return `test${ext[0]}`;
+  return g.includes('*') ? g.replace(/\*+/g, 'test') : g;
 }
 
 function cmdCheck(flags = {}) {
